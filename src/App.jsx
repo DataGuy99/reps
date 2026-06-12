@@ -391,28 +391,28 @@ export default function App(){
           </div>);
         })}
 
-        {sessionMode==="full"&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,marginBottom:6}}>
-          <div style={{fontSize:9,color:"#f59e0b",letterSpacing:2,textTransform:"uppercase"}}>Accessories</div>
-          <button onClick={rerollAcc} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:3,color:"#94a3b8",fontSize:8,padding:"3px 6px",cursor:"pointer",fontFamily:mono}}>Reroll</button>
-        </div>
-        {accs.map(a=><div key={a.id} style={{background:"#0f172a",borderLeft:a.locked?"3px solid #f59e0b":"1px solid #1e293b",border:"1px solid #1e293b",borderRadius:6,padding:"6px 10px",marginBottom:4}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:"#e2e8f0"}}>{a.name}</div>
-              <div style={{fontSize:8,color:"#475569"}}>{a.eq} | {[...a.p,...a.s].map(({m,p})=>`${m} ${p}%`).join(" / ")}</div>
-              {a.sugWeight&&<div style={{fontSize:8,color:"#f59e0b"}}>Suggest: {a.sugReps}r x {a.sugWeight}lb</div>}
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:4}}>
-              <Stars value={prefs[a.name]||0} onChange={v=>{setPrefs(p=>{const n={...p,[a.name]:v};sv(SK.prefs,n);return n;});}} size={14}/>
-              <button onClick={()=>togLock(a.id)} style={{fontSize:12,background:"none",border:"none",cursor:"pointer",color:a.locked?"#f59e0b":"#334155"}}>{a.locked?"\u{1F512}":"\u{1F513}"}</button>
-            </div>
+        {sessionMode==="full"&&<>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,marginBottom:6}}>
+            <div style={{fontSize:9,color:"#f59e0b",letterSpacing:2,textTransform:"uppercase"}}>Accessories</div>
+            <button onClick={rerollAcc} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:3,color:"#94a3b8",fontSize:8,padding:"3px 6px",cursor:"pointer",fontFamily:mono}}>Reroll</button>
           </div>
-          {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false}
-            onUp={(idx,f,v)=>updAcc(a.id,idx,f,v)} onRm={idx=>rmAcc(a.id,idx)}/>)}
-          <button onClick={()=>addAccSet(a.id)} style={{width:"100%",height:20,background:"#1e293b",border:"1px dashed #334155",borderRadius:3,color:"#64748b",fontSize:8,cursor:"pointer",fontFamily:mono,marginTop:2}}>+ set</button>
-        </div>)}
-
-        }
+          {accs.map(a=><div key={a.id} style={{background:"#0f172a",borderLeft:a.locked?"3px solid #f59e0b":"1px solid #1e293b",border:"1px solid #1e293b",borderRadius:6,padding:"6px 10px",marginBottom:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#e2e8f0"}}>{a.name}</div>
+                <div style={{fontSize:8,color:"#475569"}}>{a.eq} | {[...a.p,...a.s].map(({m,p})=>`${m} ${p}%`).join(" / ")}</div>
+                {a.sugWeight&&<div style={{fontSize:8,color:"#f59e0b"}}>Suggest: {a.sugReps}r x {a.sugWeight}lb</div>}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <Stars value={prefs[a.name]||0} onChange={v=>{setPrefs(p=>{const n={...p,[a.name]:v};sv(SK.prefs,n);return n;});}} size={14}/>
+                <button onClick={()=>togLock(a.id)} style={{fontSize:12,background:"none",border:"none",cursor:"pointer",color:a.locked?"#f59e0b":"#334155"}}>{a.locked?"\u{1F512}":"\u{1F513}"}</button>
+              </div>
+            </div>
+            {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false}
+              onUp={(idx,f,v)=>updAcc(a.id,idx,f,v)} onRm={idx=>rmAcc(a.id,idx)}/>)}
+            <button onClick={()=>addAccSet(a.id)} style={{width:"100%",height:20,background:"#1e293b",border:"1px dashed #334155",borderRadius:3,color:"#64748b",fontSize:8,cursor:"pointer",fontFamily:mono,marginTop:2}}>+ set</button>
+          </div>)}
+        </>}
 
         <button onClick={saveSession} style={{width:"100%",height:42,background:"#22c55e",border:"none",borderRadius:6,color:"#0f172a",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:mono,letterSpacing:1,textTransform:"uppercase",marginTop:12}}>Save Session</button>
       </>}
