@@ -182,16 +182,21 @@ function VolDash({weekVol}){
 }
 
 
-// Quick/maintenance mode: 1 hard set per anchor, no accessories
-function genQuickSession(anchors,anchorLog){
-  const sets={};
-  PATTERNS.forEach(p=>{
-    if(!anchors[p.id])return;
-    const prog=getProgression(anchors[p.id],anchorLog);
-    // Quick mode: 1 set, same weight, target RIR 2-3
-    sets[p.id]=[{reps:prog.reps||6,weight:prog.weight||"",rir:"",pain:"",ts:null}];
-  });
-  return sets;
+// Quick/maintenance mode: bodyweight only, no equipment loading, 1 set each, all groups
+const QUICK_BW=[
+  {name:"Pull-ups",muscles:"back, biceps",reps:"max"},
+  {name:"Push-ups",muscles:"chest, triceps, shoulders",reps:"max"},
+  {name:"Dips",muscles:"chest, triceps, shoulders",reps:"max"},
+  {name:"Bodyweight Squats",muscles:"quads, glutes",reps:"20-30"},
+  {name:"Nordic Curls",muscles:"hamstrings, glutes",reps:"max"},
+  {name:"Hanging Leg Raises",muscles:"core",reps:"max"},
+];
+
+function genQuickSession(){
+  return QUICK_BW.map(ex=>({
+    id:crypto.randomUUID(),name:ex.name,muscles:ex.muscles,sugReps:ex.reps,
+    sets:[{reps:"",weight:"BW",rir:"",pain:""}],
+  }));
 }
 
 // ── MAIN ──
@@ -215,6 +220,7 @@ export default function App(){
   const[sessionStart,setSessionStart]=useState(null);
   const[sessionMode,setSessionMode]=useState("full"); // "full" or "quick"
   const[setTimestamps,setSetTimestamps]=useState([]);
+  const[quickExs,setQuickExs]=useState([]);
 
   const allSet=PATTERNS.every(p=>anchors[p.id]);
   const mesoState=getMesoState(meso);
@@ -353,6 +359,8 @@ export default function App(){
         </div>)}
         {allSet&&<button onClick={()=>{setSetup(false);initSession();}}
           style={{width:"100%",height:40,background:"#f59e0b",border:"none",borderRadius:6,color:"#0f172a",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:mono,marginTop:8}}>Start Session</button>}
+        <button onClick={()=>{setSetup(false);setSessionStart(Date.now());setSessionMode("quick");setQuickExs(genQuickSession());setAccs([]);}}
+          style={{width:"100%",height:34,background:"#1e293b",border:"1px solid #f59e0b44",borderRadius:6,color:"#f59e0b",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:mono,marginTop:6}}>Quick Bodyweight (maintenance)</button>
       </>:<>
         
         {/* Session timer */}
@@ -364,14 +372,35 @@ export default function App(){
         {!sessionStart&&<div style={{display:"flex",gap:4,marginBottom:8}}>
           <button onClick={()=>{setSessionStart(Date.now());setSessionMode("full");initSession();}}
             style={{flex:2,height:34,background:"#22c55e",border:"none",borderRadius:4,color:"#0f172a",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:mono}}>START FULL</button>
-          <button onClick={()=>{setSessionStart(Date.now());setSessionMode("quick");setAnchorSets(genQuickSession(anchors,anchorLog));setAccs([]);}}
+          <button onClick={()=>{setSessionStart(Date.now());setSessionMode("quick");setQuickExs(genQuickSession());setAccs([]);}}
             style={{flex:1,height:34,background:"#f59e0b",border:"none",borderRadius:4,color:"#0f172a",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:mono}}>QUICK</button>
         </div>}
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-          <div style={{fontSize:9,color:"#3b82f6",letterSpacing:2,textTransform:"uppercase"}}>Anchors {sessionMode==="quick"&&"(1 set maintenance)"}</div>
+          <div style={{fontSize:9,color:sessionMode==="quick"?"#f59e0b":"#3b82f6",letterSpacing:2,textTransform:"uppercase"}}>{sessionMode==="quick"?"Bodyweight Maintenance":"Anchors"}</div>
           <button onClick={()=>setSetup(true)} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:3,color:"#64748b",fontSize:8,padding:"3px 6px",cursor:"pointer",fontFamily:mono}}>Change</button>
         </div>
+
+        {sessionMode==="quick"&&<>
+          {quickExs.map(ex=><div key={ex.id} style={{background:"#0f172a",borderLeft:"3px solid #f59e0b",border:"1px solid #1e293b",borderRadius:6,padding:"8px 10px",marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:"#f1f5f9",fontFamily:mono}}>{ex.name}</div>
+                <div style={{fontSize:8,color:"#64748b",fontFamily:mono}}>{ex.muscles} | 1 set to {ex.sugReps}</div>
+              </div>
+            </div>
+            {ex.sets.map((s,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0"}}>
+              <div style={{width:16,fontSize:8,color:"#64748b",fontFamily:mono}}>{i+1}</div>
+              <input type="number" placeholder="reps" value={s.reps||""} onChange={e=>{setQuickExs(p=>p.map(x=>x.id===ex.id?{...x,sets:x.sets.map((ss,j)=>j===i?{...ss,reps:e.target.value}:ss)}:x));}}
+                style={{flex:1,height:28,background:"#1e293b",border:"1px solid #334155",borderRadius:3,color:"#e2e8f0",padding:"0 6px",fontSize:10,fontFamily:mono}}/>
+              <div style={{fontSize:9,color:"#475569",fontFamily:mono,width:30}}>BW</div>
+              <input type="number" placeholder="RIR" value={s.rir||""} onChange={e=>{setQuickExs(p=>p.map(x=>x.id===ex.id?{...x,sets:x.sets.map((ss,j)=>j===i?{...ss,rir:e.target.value}:ss)}:x));}}
+                min="0" max="5" style={{width:38,height:28,background:"#1e293b",border:"1px solid #334155",borderRadius:3,color:"#eab308",padding:"0 4px",fontSize:10,fontFamily:mono}}/>
+            </div>)}
+          </div>)}
+        </>}
+
+        {sessionMode==="full"&&<>
         {PATTERNS.map(p=>{
           if(!anchors[p.id])return null;
           const prog=getProgression(anchors[p.id],anchorLog);
@@ -396,6 +425,7 @@ export default function App(){
             </div>
           </div>);
         })}
+        </>}
 
         {sessionMode==="full"&&<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,marginBottom:6}}>
