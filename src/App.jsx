@@ -136,10 +136,37 @@ const DAY_TARGETS={long_ride:{cal:2900,pro:190,carb:320,fat:95},med_ride:{cal:26
 const DAY_LABELS={long_ride:"Long ride",med_ride:"Med ride",hiit:"HIIT",lift:"Lift",rest:"Rest"};
 
 // ── PROGRESSION ──
-function getProgression(name,log,repRange=[6,10],targetRIR=2){
+// ── BODYWEIGHT PROGRESSION ──
+// For bw-tagged exercises: load is fixed (bodyweight + any added), progress by
+// reps (or seconds for holds). Reads sets by reps only, never the weight filter.
+// Returns the same 9-key shape as C; weight:"" so cards/gen show no lb target.
+function bwProgression(ex,last,repRange,targetRIR,bodyWeight){
+  const isHold=!!ex.hold,unit=isHold?"s":"r";
+  const ls=last.sets.filter(s=>s.reps);
+  if(!ls.length)return{weight:"",reps:repRange[0],sets:3,note:`First session. ${isHold?"Hold for time":`Hit ${repRange[0]} reps`} @ RIR ${targetRIR}.`,isNew:true,ramp:null};
+  const avgR=Math.round(ls.reduce((a,s)=>a+(+s.reps),0)/ls.length);
+  const added=ls.map(s=>+s.weight||0);
+  const avgAdd=Math.round(added.reduce((a,b)=>a+b,0)/added.length);
+  const load=(+bodyWeight||0)+avgAdd;
+  const loadStr=load>0?`${load}lb`:"BW";
+  const rs=ls.filter(s=>s.rir!=null&&s.rir!=="");
+  const avgRIR=rs.length?Math.round(rs.reduce((a,x)=>a+(+x.rir),0)/rs.length*10)/10:null;
+  const step=isHold?5:1,ceiling=repRange[1];
+  if(avgRIR!==null&&avgRIR<1){const t=Math.max(repRange[0],avgR-step);
+    return{weight:"",reps:t,sets:ls.length,note:`${loadStr} · last ${avgR}${unit} @ RIR ${avgRIR}. Near failure, hold ${t}${unit}.`,tooHard:true,ramp:added};}
+  if(!isHold&&avgR>=ceiling&&(avgRIR===null||avgRIR<=targetRIR+0.5))
+    return{weight:"",reps:ceiling,sets:ls.length,note:`${loadStr} · hit ${ceiling}${unit} ceiling${avgRIR!==null?` @ RIR ${avgRIR}`:""}. Add load or harder variation.`,progressed:true,ramp:added};
+  const t=isHold?avgR+step:Math.min(avgR+step,ceiling);
+  return{weight:"",reps:t,sets:ls.length,note:`${loadStr} · last ${avgR}${unit}${avgRIR!==null?` @ RIR ${avgRIR}`:""}. Target ${t}${unit} @ RIR ${targetRIR}.`,ramp:added};
+}
+
+function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0){
   const h=log[name];
   if(!h||!h.length)return{weight:"",reps:repRange[0],sets:3,note:`First session. Find weight for ${repRange[0]} reps @ RIR ${targetRIR}.`,isNew:true};
-  const last=h[h.length-1];const ls=last.sets.filter(s=>s.reps&&s.weight);
+  const last=h[h.length-1];
+  const exDef=EXERCISES.find(x=>x.name===name);
+  if(exDef&&exDef.bw)return bwProgression(exDef,last,repRange,targetRIR,bodyWeight);
+  const ls=last.sets.filter(s=>s.reps&&s.weight);
   if(!ls.length)return{weight:"",reps:repRange[0],sets:3,note:"No data last session.",isNew:true,ramp:null};
   // ── PROGRESSION MODEL C: weighted e1RM across ALL sets ──
   // Every set is one (weight,reps,RIR) data point. RIR turns a submaximal set
@@ -221,9 +248,10 @@ function genAcc(n,banned,prefs,fatigue,weekVol){
     return{ex,weight:mult*avgFw*underBoost};
   }).filter(x=>x.weight>0.1).sort((a,b)=>b.weight-a.weight);
   const sel=[];const used=new Set();
+  const bwLoad=(ld(SK.body,[]).slice().reverse().find(e=>e.weight)||{}).weight||0;
   for(const{ex}of weighted){
     if(sel.length>=n||used.has(ex.name))continue;
-    const sug=getProgression(ex.name,ld(SK.accLog,{})||{},[10,15],2);
+    const sug=getProgression(ex.name,ld(SK.accLog,{})||{},[10,15],2,bwLoad);
     sel.push({id:crypto.randomUUID(),name:ex.name,eq:ex.eq,cat:ex.cat,p:ex.p,s:ex.s,
       sugReps:sug.reps||10,sugWeight:sug.weight||"",locked:false,
       sets:[{reps:sug.reps||"",weight:sug.weight||"",rir:""},{reps:sug.reps||"",weight:sug.weight||"",rir:""}]});
@@ -291,12 +319,26 @@ const Stars=({value,onChange,size=18})=>(<div style={{display:"flex",gap:4}}>
   {[1,2,3].map(s=><span key={s} onClick={e=>{e.stopPropagation();onChange(value===s?0:s);}}
     style={{cursor:"pointer",fontSize:size,color:s<=value?C.amber:C.line,userSelect:"none",lineHeight:1}}>★</span>)}</div>);
 
-function SetRow({set,i,onUp,onRm,showPain}){
+function SetRow({set,i,onUp,onRm,showPain,isHold}){
   const rc=set.rir!=null&&set.rir!==""?RIR_C(+set.rir):C.line;
   const pc=set.pain!=null&&set.pain!==""?PAIN_C(+set.pain):C.line;
+  const[running,setRunning]=useState(false);
+  const[elapsed,setElapsed]=useState(0);
+  useEffect(()=>{
+    if(!running)return;
+    const t0=Date.now()-elapsed*1000;
+    const iv=setInterval(()=>setElapsed(Math.floor((Date.now()-t0)/1000)),250);
+    return()=>clearInterval(iv);
+  },[running]);
+  const toggle=()=>{
+    if(running){setRunning(false);onUp(i,"reps",String(elapsed));}
+    else{setElapsed(set.reps?+set.reps:0);setRunning(true);}
+  };
   return(<div className="setrow">
     <div className="setnum">{i+1}</div>
-    <input className="in" type="number" inputMode="numeric" placeholder="reps" value={set.reps||""} onChange={e=>onUp(i,"reps",e.target.value)} style={{flex:1}}/>
+    <input className="in" type="number" inputMode="numeric" placeholder={isHold?"sec":"reps"} value={set.reps||""} onChange={e=>onUp(i,"reps",e.target.value)} style={{flex:1}}/>
+    {isHold&&<button className="x" onClick={toggle} title="Hold timer"
+      style={{width:62,flexShrink:0,fontFamily:mono,fontSize:13,color:running?C.alarm:C.amber,borderColor:running?C.alarm:C.line}}>{running?`⏹${elapsed}`:"⏱"}</button>}
     <input className="in" type="number" inputMode="decimal" placeholder="lbs" value={set.weight||""} onChange={e=>onUp(i,"weight",e.target.value)} style={{width:76,flexShrink:0}}/>
     <input className="in" type="number" inputMode="numeric" placeholder="RIR" value={set.rir!=null?set.rir:""} onChange={e=>onUp(i,"rir",e.target.value)}
       min="0" max="5" style={{width:58,flexShrink:0,borderColor:rc,color:set.rir!==""&&set.rir!=null?rc:C.bone}}/>
@@ -341,6 +383,7 @@ export default function App(){
   const[fatigue,setFatigue]=useState(()=>{const f={};MUSCLES.forEach(m=>f[m]=0);return ld(SK.fatigue,f)});
   const[nutrition,setNutrition]=useState(()=>ld(SK.nutrition,[]));
   const[bodyData,setBodyData]=useState(()=>ld(SK.body,[]));
+  const latestBW=useMemo(()=>{const e=[...bodyData].reverse().find(x=>x.weight);return e?+e.weight:0;},[bodyData]);
   const[cardioData,setCardioData]=useState(()=>ld(SK.cardio,[]));
   const[meso,setMeso]=useState(()=>ld(SK.meso,{startDate:null,length:5}));
   const[sessHist,setSessHist]=useState(()=>ld(SK.history,[]));
@@ -363,7 +406,7 @@ export default function App(){
     const sets={};const isDeload=mesoState.phase==="deload";
     PATTERNS.forEach(p=>{
       if(!anchors[p.id])return;
-      const prog=getProgression(anchors[p.id],anchorLog);
+      const prog=getProgression(anchors[p.id],anchorLog,[6,10],2,latestBW);
       const n=isDeload?2:(prog.sets||3);
       const w=isDeload&&prog.weight?Math.round(+prog.weight*0.7):prog.weight;
       // ── LIVE: flat prescription (every set same weight) ──
@@ -386,7 +429,7 @@ export default function App(){
     });
     setAnchorSets(sets);
     setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol));
-  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase]);
+  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW]);
 
   useEffect(()=>{if(allSet&&!setup)initSession();},[allSet,setup]);
 
@@ -545,7 +588,7 @@ export default function App(){
         {sessionMode==="full"&&<>
           {PATTERNS.map(p=>{
             if(!anchors[p.id])return null;
-            const prog=getProgression(anchors[p.id],anchorLog);
+            const prog=getProgression(anchors[p.id],anchorLog,[6,10],2,latestBW);
             const sets=anchorSets[p.id]||[];
             const hasPain=sets.some(s=>s.pain!=null&&s.pain!==""&&+s.pain>=6);
             const stripe=hasPain?C.alarm:prog.deload?C.alarm:prog.progressed?C.go:C.arc;
@@ -562,7 +605,7 @@ export default function App(){
                 <span className="chip" style={{color:chip.c,background:`${chip.c}1c`,border:`1px solid ${chip.c}44`}}>{chip.t}</span>
                 <p>{prog.note}{prog.weight?<span className="tgt"> → {prog.reps}r × {prog.weight}lb</span>:null}</p>
               </div>
-              {sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={true}
+              {sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={true} isHold={!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold}
                 onUp={(idx,f,v)=>updAS(p.id,idx,f,v)} onRm={idx=>rmAS(p.id,idx)}/>)}
               <button className="addset" onClick={()=>addAS(p.id)}>+ set</button>
             </div>);
@@ -585,7 +628,7 @@ export default function App(){
               </div>
             </div>
             <div style={{marginTop:4}}>
-              {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false}
+              {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false} isHold={!!(EXERCISES.find(x=>x.name===a.name)||{}).hold}
                 onUp={(idx,f,v)=>updAcc(a.id,idx,f,v)} onRm={idx=>rmAcc(a.id,idx)}/>)}
             </div>
             <button className="addset" onClick={()=>addAccSet(a.id)}>+ set</button>
