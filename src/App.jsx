@@ -136,6 +136,11 @@ const ACC_POOL=EXERCISES.filter(e=>!ALL_PAT_EX.has(e.name));
 const DAY_TARGETS={long_ride:{cal:2900,pro:190,carb:320,fat:95},med_ride:{cal:2600,pro:190,carb:258,fat:90},
   hiit:{cal:2400,pro:190,carb:208,fat:90},lift:{cal:2400,pro:190,carb:208,fat:90},rest:{cal:2100,pro:190,carb:133,fat:90}};
 const DAY_LABELS={long_ride:"Long ride",med_ride:"Med ride",hiit:"HIIT",lift:"Lift",rest:"Rest"};
+// Monday-anchored week key (YYYY-MM-DD of that week's Monday); sortable.
+function weekStart(dstr){const d=new Date(dstr+"T00:00:00");const off=(d.getDay()+6)%7;d.setDate(d.getDate()-off);return d.toISOString().slice(0,10);}
+// Least-squares slope of [{x,y}] points (0 if <2 points).
+function slope(pts){const n=pts.length;if(n<2)return 0;const sx=pts.reduce((a,p)=>a+p.x,0),sy=pts.reduce((a,p)=>a+p.y,0),sxy=pts.reduce((a,p)=>a+p.x*p.y,0),sxx=pts.reduce((a,p)=>a+p.x*p.x,0);const d=n*sxx-sx*sx;return d===0?0:(n*sxy-sx*sy)/d;}
+
 const DOW3=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
 // ── CARDIO ENERGY (Keytel, ported from cut-tracker) ──
@@ -796,18 +801,24 @@ export default function App(){
         const nm=anchors[p.id];if(!nm)return null;const h=anchorLog[nm];
         if(!h||!h.length)return<div key={p.id} className="sub" style={{marginBottom:6}}>{p.label} · {nm} — no data yet</div>;
         const ents=h.slice(-10);
-        const e1rms=ents.map(e=>{const b=e.sets.filter(s=>s.weight&&s.reps).sort((a,b)=>(b.weight*b.reps)-(a.weight*a.reps))[0];
-          return b?Math.round(b.weight*(1+b.reps/30)):0}).filter(Boolean);
-        const maxE=Math.max(...e1rms,1);
-        const delta=e1rms.length>=2?e1rms[e1rms.length-1]-e1rms[0]:0;
+        const exMeta=EXERCISES.find(x=>x.name===nm);const isBw=!!exMeta?.bw,isHold=!!exMeta?.hold;
+        const unit=isBw?(isHold?"s":"r"):"lb";
+        const vals=ents.map(e=>{
+          if(isBw){const ss=e.sets.filter(s=>s.reps);if(!ss.length)return 0;return Math.round(ss.reduce((a,s)=>a+(+s.reps),0)/ss.length);}
+          const b=e.sets.filter(s=>s.weight&&s.reps).sort((a,b)=>(b.weight*b.reps)-(a.weight*a.reps))[0];
+          return b?Math.round(b.weight*(1+b.reps/30)):0;}).filter(Boolean);
+        if(!vals.length)return<div key={p.id} className="sub" style={{marginBottom:6}}>{p.label} · {nm} — no data yet</div>;
+        const maxE=Math.max(...vals,1);
+        const delta=vals.length>=2?vals[vals.length-1]-vals[0]:0;
+        const label=isBw?(isHold?"avg hold":"avg reps"):"e1RM";
         return(<div key={p.id} className="card plate">
           <div className="pat-eyebrow">{p.label}</div>
           <div className="ex-name" style={{fontSize:17}}>{nm}</div>
           <div className="bars">
-            {e1rms.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/maxE)*100,8)}%`,background:i===e1rms.length-1?C.arc:`${C.arc}55`}}/>)}
+            {vals.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/maxE)*100,8)}%`,background:i===vals.length-1?C.arc:`${C.arc}55`}}/>)}
           </div>
           <div className="stat">
-            <span>e1RM <b style={{color:C.bone}}>{e1rms[e1rms.length-1]||"--"}lb</b>{e1rms.length>=2&&<span style={{color:delta>=0?C.go:C.alarm}}> ({delta>0?"+":""}{delta})</span>} · {h.length} sessions</span>
+            <span>{label} <b style={{color:C.bone}}>{vals[vals.length-1]||"--"}{unit}</b>{vals.length>=2&&<span style={{color:delta>=0?C.go:C.alarm}}> ({delta>0?"+":""}{delta})</span>} · {h.length} sessions</span>
             <button className="btn-ghost red" style={{fontSize:9,padding:"3px 8px"}}
               onClick={()=>{const newLog={...anchorLog};if(newLog[nm]&&newLog[nm].length>0){newLog[nm]=newLog[nm].slice(0,-1);setAnchorLog(newLog);sv(SK.anchorLog,newLog);}}}>del last</button>
           </div>
@@ -823,6 +834,19 @@ export default function App(){
             <span>{e.date} · {e.weight&&`${e.weight}lb `}{e.waist&&`W${e.waist} `}{e.navel&&`N${e.navel} `}{e.lArm&&`LA${e.lArm} `}{e.rArm&&`RA${e.rArm} `}{e.lThigh&&`LT${e.lThigh} `}{e.rThigh&&`RT${e.rThigh}`}</span>
           </div>)}
         </div>}
+      {(()=>{const wd=bodyData.filter(e=>e.weight).map(e=>({date:e.date,w:+e.weight}));
+        if(wd.length<2)return null;
+        const t0=new Date(wd[0].date+"T00:00:00").getTime();
+        const pts=wd.map(e=>({x:(new Date(e.date+"T00:00:00").getTime()-t0)/86400000,y:e.w}));
+        const perWk=slope(pts)*7;
+        const ws=wd.slice(-12);const mn=Math.min(...ws.map(e=>e.w)),mx=Math.max(...ws.map(e=>e.w));const rng=mx-mn||1;
+        return<div className="card plate">
+          <div className="pat-eyebrow">Weight trend</div>
+          <div className="bars">
+            {ws.map((e,i)=><div key={i} className="bar" style={{height:`${Math.max(((e.w-mn)/rng)*100,8)}%`,background:i===ws.length-1?C.amber:`${C.amber}55`}}/>)}
+          </div>
+          <div className="stat"><span><b style={{color:C.bone}}>{wd[wd.length-1].w}lb</b> · <span style={{color:perWk<=0?C.go:C.alarm}}>{perWk>0?"+":""}{perWk.toFixed(2)} lb/wk</span> · {wd.length} weigh-ins</span></div>
+        </div>;})()}
       {bodyData.length>=2&&(()=>{const f=bodyData[0],l=bodyData[bodyData.length-1];
         return<div className="delta-box">
           {f.weight&&l.weight?<div>Weight {f.weight} → {l.weight} <span style={{color:l.weight<f.weight?C.go:C.alarm}}>({l.weight>f.weight?"+":""}{(l.weight-f.weight).toFixed(1)})</span></div>:null}
@@ -839,6 +863,32 @@ export default function App(){
             <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=e.burn!=null?e.burn:cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
           </div>)}
         </div>}
+
+      <div className="eyebrow"><span style={{color:C.amber}}>Calorie balance</span></div>
+      {(()=>{const byDay={};nutrition.forEach(e=>{byDay[e.date]=(byDay[e.date]||0)+(+e.cal||0);});
+        const days=Object.keys(byDay);if(!days.length)return<div className="empty">No nutrition logged</div>;
+        const wk={};days.forEach(date=>{const dw=new Date(date+"T00:00:00").getDay();const ov=dayOverrides[date];const tgt=(ov?DAY_TARGETS[ov]:dayTargets[dw])?.cal||0;const w=weekStart(date);wk[w]=(wk[w]||0)+(byDay[date]-tgt);});
+        const weeks=Object.keys(wk).sort().slice(-8);const bals=weeks.map(w=>Math.round(wk[w]));
+        const amax=Math.max(...bals.map(Math.abs),1);const last=bals[bals.length-1];
+        return<div className="card">
+          <div className="sub" style={{marginTop:0,marginBottom:6}}>Weekly net vs target · {last<=0?"deficit":"surplus"} {last>0?"+":""}{last} cal this wk</div>
+          <div className="bars">
+            {bals.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((Math.abs(v)/amax)*100,8)}%`,background:v<=0?(i===bals.length-1?C.go:`${C.go}66`):(i===bals.length-1?C.alarm:`${C.alarm}66`)}}/>)}
+          </div>
+        </div>;})()}
+
+      <div className="eyebrow"><span style={{color:C.amber}}>Cardio load</span></div>
+      {(()=>{if(!cardioData.length)return<div className="empty">No cardio yet</div>;
+        const wk={};cardioData.forEach(e=>{const b=e.burn!=null?e.burn:cardioBurn(e,latestBW,profile.age,profile.sex);if(b){const w=weekStart(e.date);wk[w]=(wk[w]||0)+b;}});
+        const weeks=Object.keys(wk).sort().slice(-8);const kcals=weeks.map(w=>wk[w]);
+        const hrEnts=cardioData.filter(e=>e.avgHR).slice(-12);const kmax=Math.max(...kcals,1);
+        return<div className="card">
+          {kcals.length>0&&<><div className="sub" style={{marginTop:0,marginBottom:6}}>Weekly cardio kcal · {kcals[kcals.length-1]} this wk</div>
+          <div className="bars">{kcals.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/kmax)*100,8)}%`,background:i===kcals.length-1?C.arc:`${C.arc}55`}}/>)}</div></>}
+          {hrEnts.length>=2&&(()=>{const mn=Math.min(...hrEnts.map(e=>+e.avgHR)),mx=Math.max(...hrEnts.map(e=>+e.avgHR));const rng=mx-mn||1;
+            return<><div className="sub" style={{marginBottom:6}}>Avg HR trend (last {hrEnts.length})</div>
+            <div className="bars">{hrEnts.map((e,i)=><div key={i} className="bar" style={{height:`${Math.max(((+e.avgHR-mn)/rng)*100,8)}%`,background:i===hrEnts.length-1?C.warn:`${C.warn}55`}}/>)}</div></>;})()}
+        </div>;})()}
     </>}
     </div>
   </div>);
