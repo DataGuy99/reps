@@ -7,6 +7,7 @@ const sv=(k,d)=>{try{localStorage.setItem(k,JSON.stringify(d))}catch(e){console.
 const SK={anchors:"wg2-anchors",anchorLog:"wg2-anchor-log",accLog:"wg2-acc-log",fatigue:"wg2-fatigue",
   banned:"wg2-banned",prefs:"wg2-prefs",nutrition:"wg2-nutrition",body:"wg2-body",cardio:"wg2-cardio",
   daytargets:"wg2-daytargets",dayoverrides:"wg2-dayoverrides",
+  profile:"wg2-profile",
   meso:"wg2-meso",settings:"wg2-settings",history:"wg2-history"};
 
 // ── DESIGN TOKENS ──
@@ -136,6 +137,26 @@ const DAY_TARGETS={long_ride:{cal:2900,pro:190,carb:320,fat:95},med_ride:{cal:26
   hiit:{cal:2400,pro:190,carb:208,fat:90},lift:{cal:2400,pro:190,carb:208,fat:90},rest:{cal:2100,pro:190,carb:133,fat:90}};
 const DAY_LABELS={long_ride:"Long ride",med_ride:"Med ride",hiit:"HIIT",lift:"Lift",rest:"Rest"};
 const DOW3=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+// ── CARDIO ENERGY (Keytel, ported from cut-tracker) ──
+// cal/min male:   (-55.0969 + 0.6309*HR + 0.1988*kg + 0.2017*age)/4.184
+// cal/min female: (-20.4022 + 0.4472*HR - 0.1263*kg + 0.074*age)/4.184
+function keytelCpm(hr,kg,age,sex){
+  if(!hr||!kg)return 0;
+  const v=sex==="female"
+    ?(-20.4022+0.4472*hr-0.1263*kg+0.074*age)/4.184
+    :(-55.0969+0.6309*hr+0.1988*kg+0.2017*age)/4.184;
+  return Math.max(0,v);
+}
+// Steady-state burn from avg HR + duration; HIIT adds ~15% EPOC (cut-tracker convention).
+// weightLb is current scale weight; entries lacking HR or weight return null.
+function cardioBurn(e,weightLb,age,sex){
+  if(!e||!e.avgHR)return null;
+  const kg=(+weightLb||0)*0.4536;
+  if(!kg)return null;
+  const base=keytelCpm(+e.avgHR,kg,+age||0,sex)*(+e.duration||0);
+  return Math.round(e.type==="hiit"?base*1.15:base);
+}
 
 // ── PROGRESSION ──
 // ── BODYWEIGHT PROGRESSION ──
@@ -507,6 +528,8 @@ export default function App(){
   const delBody=useCallback(time=>{setBodyData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.body,n);return n;});},[]);
   // Cardio
   const[cType,setCType]=useState("steady");const[cDur,setCDur]=useState("");const[cHR,setCHR]=useState("");const[cConf,setCConf]=useState("");
+  const[profile,setProfile]=useState(()=>ld(SK.profile,{age:26,sex:"male"}));
+  const setProf=(f,v)=>setProfile(p=>{const n={...p,[f]:f==="age"?(+v||0):v};sv(SK.profile,n);return n;});
   const addCardio=useCallback(()=>{if(!cDur)return;const e={date:today,type:cType,duration:+cDur,avgHR:+cHR||null,config:cType==="hiit"?cConf:"",time:new Date().toISOString()};
     setCardioData(p=>{const n=[...p,e].slice(-500);sv(SK.cardio,n);return n;});setCDur("");setCHR("");setCConf("");},[cType,cDur,cHR,cConf,today]);
   const delCardio=useCallback(time=>{setCardioData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.cardio,n);return n;});},[]);
@@ -722,6 +745,13 @@ export default function App(){
 
       <div className="eyebrow"><span style={{color:C.amber}}>Cardio</span></div>
       <div className="card">
+        <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8}}>
+          <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>PROFILE</span>
+          <input className="in sm" type="number" inputMode="numeric" placeholder="age" value={profile.age||""} onChange={e=>setProf("age",e.target.value)} style={{width:56,flexShrink:0}}/>
+          <button className={`daytype${profile.sex==="male"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","male")}>M</button>
+          <button className={`daytype${profile.sex==="female"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","female")}>F</button>
+          {latestBW>0&&<span style={{fontFamily:mono,fontSize:11,color:C.steel,marginLeft:"auto"}}>{latestBW}lb</span>}
+        </div>
         <div className="grid3">
           <select className="in sm" value={cType} onChange={e=>setCType(e.target.value)} style={{width:96,flexShrink:0}}>
             <option value="steady">Steady</option><option value="hiit">HIIT</option><option value="walk">Walk</option>
@@ -730,10 +760,12 @@ export default function App(){
           <input className="in sm" type="number" inputMode="numeric" placeholder="avg HR" value={cHR} onChange={e=>setCHR(e.target.value)} style={{flex:1}}/>
         </div>
         {cType==="hiit"&&<input className="in sm" type="text" placeholder="config · 4x4min @175bpm" value={cConf} onChange={e=>setCConf(e.target.value)} style={{width:"100%",marginBottom:6}}/>}
+        {cDur&&cHR&&(()=>{const b=cardioBurn({avgHR:cHR,duration:cDur,type:cType},latestBW,profile.age,profile.sex);
+          return<div style={{fontFamily:mono,fontSize:12,color:b?C.go:C.dim,marginBottom:6}}>{b?`~${b} cal${cType==="hiit"?" · incl EPOC":""}`:"log body weight for burn estimate"}</div>;})()}
         <button className="btn btn-go" style={{width:"100%",height:44,fontSize:13}} onClick={addCardio}>Log cardio</button>
         {cardioData.length>0&&<div style={{marginTop:8}}>
           {cardioData.slice(-5).reverse().map((e,i)=><div key={i} className="entry">
-            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
+            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
             <button className="x" onClick={()=>delCardio(e.time||e.date)}>✕</button>
           </div>)}
         </div>}
@@ -803,7 +835,7 @@ export default function App(){
       {cardioData.length===0?<div className="empty">No cardio yet</div>:
         <div className="card">
           {cardioData.slice(-10).reverse().map((e,i)=><div key={i} className="entry">
-            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
+            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
           </div>)}
         </div>}
     </>}
