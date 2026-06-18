@@ -386,7 +386,7 @@ function SetRow({set,i,onUp,onRm,showPain,isHold}){
     <div className="setnum">{i+1}</div>
     <input className="in" type="number" inputMode="numeric" placeholder={isHold?"sec":"reps"} value={set.reps||""} onChange={e=>onUp(i,"reps",e.target.value)} style={{flex:1}}/>
     {isHold&&<button className="x" onClick={toggle} title="Hold timer"
-      style={{width:62,flexShrink:0,fontFamily:mono,fontSize:13,color:running?C.alarm:C.amber,borderColor:running?C.alarm:C.line}}>{running?`⏹${elapsed}`:"⏱"}</button>}
+      style={{width:62,flexShrink:0,fontFamily:mono,fontSize:12,color:running?C.alarm:C.amber,borderColor:running?C.alarm:C.line}}>{running?`${elapsed}s`:"time"}</button>}
     <input className="in" type="number" inputMode="decimal" placeholder="lbs" value={set.weight||""} onChange={e=>onUp(i,"weight",e.target.value)} style={{width:76,flexShrink:0}}/>
     <input className="in" type="number" inputMode="numeric" placeholder="RIR" value={set.rir!=null?set.rir:""} onChange={e=>onUp(i,"rir",e.target.value)}
       min="0" max="5" style={{width:58,flexShrink:0,borderColor:rc,color:set.rir!==""&&set.rir!=null?rc:C.bone}}/>
@@ -493,6 +493,7 @@ export default function App(){
   const rmAcc=useCallback((id,idx)=>setAccs(p=>p.map(a=>a.id===id?{...a,sets:a.sets.filter((_,i)=>i!==idx)}:a)),[]);
   const addAccSet=useCallback(id=>setAccs(p=>p.map(a=>a.id===id?{...a,sets:[...a.sets,{reps:"",weight:"",rir:""}]}:a)),[]);
   const togLock=useCallback(id=>setAccs(p=>p.map(a=>a.id===id?{...a,locked:!a.locked}:a)),[]);
+  const toggleBan=useCallback(name=>{setBanned(p=>{const n=p.includes(name)?p.filter(x=>x!==name):[...p,name];sv(SK.banned,n);return n;});setAccs(p=>p.filter(a=>a.name!==name));},[]);
   const rerollAcc=useCallback(()=>{const locked=accs.filter(a=>a.locked);
     const seed=anchorMuscleLoad(anchors,anchorSets);
     locked.forEach(a=>[...a.p,...a.s].forEach(({m,p:pct})=>{seed[m]=(seed[m]||0)+(a.sets.length)*(pct/100);}));
@@ -726,7 +727,8 @@ export default function App(){
               </div>
               <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                 <Stars value={prefs[a.name]||0} onChange={v=>{setPrefs(p=>{const n={...p,[a.name]:v};sv(SK.prefs,n);return n;});}}/>
-                <button onClick={()=>togLock(a.id)} style={{fontSize:17,background:"none",border:"none",cursor:"pointer",color:a.locked?C.amber:C.line,padding:4}}>{a.locked?"\u{1F512}":"\u{1F513}"}</button>
+                <button onClick={()=>toggleBan(a.name)} title="Ban from rotation" style={{fontFamily:mono,fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.dim,padding:4,letterSpacing:1}}>ban</button>
+                <button onClick={()=>togLock(a.id)} title={a.locked?"Locked":"Lock"} style={{fontFamily:mono,fontSize:11,background:"none",border:"none",cursor:"pointer",color:a.locked?C.amber:C.line,padding:4,letterSpacing:1}}>{a.locked?"LOCK":"lock"}</button>
               </div>
             </div>
             <div style={{marginTop:4}}>
@@ -735,6 +737,12 @@ export default function App(){
             </div>
             <button className="addset" onClick={()=>addAccSet(a.id)}>+ set</button>
           </div>)}
+          {banned.length>0&&<div style={{marginTop:12}}>
+            <div style={{fontFamily:mono,fontSize:11,color:C.dim,marginBottom:6}}>BANNED · tap to restore</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {banned.map(nm=><button key={nm} onClick={()=>toggleBan(nm)} style={{fontFamily:mono,fontSize:11,background:C.raised,border:`1px solid ${C.line}`,borderRadius:6,padding:"4px 10px",color:C.steel,cursor:"pointer"}}>{nm} ×</button>)}
+            </div>
+          </div>}
         </>}
 
         <button className="btn btn-go" style={{width:"100%",height:56,fontSize:16,marginTop:14}} onClick={saveSession}>Save session</button>
