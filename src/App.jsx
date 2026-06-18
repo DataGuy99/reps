@@ -531,7 +531,8 @@ export default function App(){
   const[profile,setProfile]=useState(()=>ld(SK.profile,{age:26,sex:"male"}));
   const setProf=(f,v)=>setProfile(p=>{const n={...p,[f]:f==="age"?(+v||0):v};sv(SK.profile,n);return n;});
   const addCardio=useCallback(()=>{if(!cDur)return;const e={date:today,type:cType,duration:+cDur,avgHR:+cHR||null,config:cType==="hiit"?cConf:"",time:new Date().toISOString()};
-    setCardioData(p=>{const n=[...p,e].slice(-500);sv(SK.cardio,n);return n;});setCDur("");setCHR("");setCConf("");},[cType,cDur,cHR,cConf,today]);
+    e.burn=cardioBurn(e,latestBW,profile.age,profile.sex);e.atWt=latestBW||null;
+    setCardioData(p=>{const n=[...p,e].slice(-500);sv(SK.cardio,n);return n;});setCDur("");setCHR("");setCConf("");},[cType,cDur,cHR,cConf,today,latestBW,profile.age,profile.sex]);
   const delCardio=useCallback(time=>{setCardioData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.cardio,n);return n;});},[]);
   const clearAllData=useCallback(()=>{if(!confirm("Delete ALL data? This cannot be undone."))return;
     Object.values(SK).forEach(k=>localStorage.removeItem(k));localStorage.removeItem(SK.accLog+"_prog");
@@ -765,7 +766,7 @@ export default function App(){
         <button className="btn btn-go" style={{width:"100%",height:44,fontSize:13}} onClick={addCardio}>Log cardio</button>
         {cardioData.length>0&&<div style={{marginTop:8}}>
           {cardioData.slice(-5).reverse().map((e,i)=><div key={i} className="entry">
-            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
+            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=e.burn!=null?e.burn:cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
             <button className="x" onClick={()=>delCardio(e.time||e.date)}>✕</button>
           </div>)}
         </div>}
@@ -835,7 +836,7 @@ export default function App(){
       {cardioData.length===0?<div className="empty">No cardio yet</div>:
         <div className="card">
           {cardioData.slice(-10).reverse().map((e,i)=><div key={i} className="entry">
-            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
+            <span>{e.date} · {e.type} {e.duration}min {e.avgHR&&`· HR ${e.avgHR}`}{(()=>{const b=e.burn!=null?e.burn:cardioBurn(e,latestBW,profile.age,profile.sex);return b?` · ~${b} cal`:"";})()} {e.config&&<span style={{color:C.dim}}>({e.config})</span>}</span>
           </div>)}
         </div>}
     </>}
