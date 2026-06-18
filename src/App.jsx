@@ -140,6 +140,8 @@ const DAY_LABELS={long_ride:"Long ride",med_ride:"Med ride",hiit:"HIIT",lift:"Li
 function weekStart(dstr){const ds=String(dstr).slice(0,10);const d=new Date(ds+"T00:00:00");const off=(d.getDay()+6)%7;d.setDate(d.getDate()-off);return d.toISOString().slice(0,10);}
 // Least-squares slope of [{x,y}] points (0 if <2 points).
 function slope(pts){const n=pts.length;if(n<2)return 0;const sx=pts.reduce((a,p)=>a+p.x,0),sy=pts.reduce((a,p)=>a+p.y,0),sxy=pts.reduce((a,p)=>a+p.x*p.y,0),sxx=pts.reduce((a,p)=>a+p.x*p.x,0);const d=n*sxx-sx*sx;return d===0?0:(n*sxy-sx*sy)/d;}
+// Pearson r of [[x,y],...]; null if <3 pairs or zero variance.
+function pearson(pairs){const n=pairs.length;if(n<3)return null;const sx=pairs.reduce((a,p)=>a+p[0],0),sy=pairs.reduce((a,p)=>a+p[1],0),sxy=pairs.reduce((a,p)=>a+p[0]*p[1],0),sxx=pairs.reduce((a,p)=>a+p[0]*p[0],0),syy=pairs.reduce((a,p)=>a+p[1]*p[1],0);const num=n*sxy-sx*sy,den=Math.sqrt((n*sxx-sx*sx)*(n*syy-sy*sy));return den===0?null:num/den;}
 
 const DOW3=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
@@ -545,6 +547,47 @@ export default function App(){
 
   const dateStr=new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 
+  // ── PHASE 4: insight series + correlations ──
+  const weeklyAgg=useMemo(()=>{
+    const strW={};
+    PATTERNS.forEach(p=>{const nm=anchors[p.id];if(!nm)return;const h=anchorLog[nm];if(!h||!h.length)return;
+      const ex=EXERCISES.find(x=>x.name===nm);const bw=!!ex?.bw;
+      const val=e=>{if(bw){const ss=e.sets.filter(s=>s.reps);return ss.length?ss.reduce((a,s)=>a+(+s.reps),0)/ss.length:0;}const b=e.sets.filter(s=>s.weight&&s.reps).sort((a,b)=>(b.weight*b.reps)-(a.weight*a.reps))[0];return b?b.weight*(1+b.reps/30):0;};
+      const base=val(h[0]);if(!base)return;
+      h.forEach(e=>{const v=val(e);if(!v)return;const w=weekStart(e.date);(strW[w]=strW[w]||[]).push(v/base);});});
+    const strength={};Object.keys(strW).forEach(w=>strength[w]=strW[w].reduce((a,b)=>a+b,0)/strW[w].length*100);
+    const byDay={};nutrition.forEach(e=>{byDay[e.date]=(byDay[e.date]||0)+(+e.cal||0);});
+    const balance={};Object.keys(byDay).forEach(date=>{const dw=new Date(String(date).slice(0,10)+"T00:00:00").getDay();const ov=dayOverrides[date];const tgt=(ov?DAY_TARGETS[ov]:dayTargets[dw])?.cal||0;const w=weekStart(date);balance[w]=(balance[w]||0)+(byDay[date]-tgt);});
+    const wW={};bodyData.filter(e=>e.weight).forEach(e=>{const w=weekStart(e.date);(wW[w]=wW[w]||[]).push(+e.weight);});
+    const weight={};Object.keys(wW).forEach(w=>weight[w]=wW[w].reduce((a,b)=>a+b,0)/wW[w].length);
+    const cK={},cH={};cardioData.forEach(e=>{const w=weekStart(e.date);const b=e.burn!=null?e.burn:cardioBurn(e,latestBW,profile.age,profile.sex);if(b)cK[w]=(cK[w]||0)+b;if(e.avgHR)(cH[w]=cH[w]||[]).push(+e.avgHR);});
+    const cardioHR={};Object.keys(cH).forEach(w=>cardioHR[w]=cH[w].reduce((a,b)=>a+b,0)/cH[w].length);
+    return{strength,balance,weight,cardioKcal:cK,cardioHR};
+  },[anchorLog,anchors,nutrition,dayTargets,dayOverrides,bodyData,cardioData,latestBW,profile]);
+
+  const bodyVerdict=useMemo(()=>{
+    const sl=k=>{const pts=bodyData.filter(e=>e[k]).map(e=>({x:new Date(String(e.date).slice(0,10)+"T00:00:00").getTime()/86400000,y:+e[k]}));return pts.length>=2?slope(pts)*7:null;};
+    const w=sl("weight"),wa=sl("waist"),arm=sl("lArm")??sl("rArm");
+    if(w==null&&wa==null)return null;
+    const fW=0.3,fI=0.1;
+    const wd=w==null?null:(w<-fW?"down":w>fW?"up":"flat");
+    const wad=wa==null?null:(wa<-fI?"down":wa>fI?"up":"flat");
+    const armd=arm==null?null:(arm<-fI?"down":arm>fI?"up":"flat");
+    let text,tone;
+    if(wad==="up"){text=`Waist rising ${wa>0?"+":""}${wa.toFixed(2)}"/wk${wd==="up"?` with weight up ${w.toFixed(2)} lb/wk`:""}. Trending toward fat gain.`;tone=C.alarm;}
+    else if(wad==="down"&&wd==="flat"){text=`Waist down ${wa.toFixed(2)}"/wk at stable weight${armd==="up"?", arms up":""}. Recomposition: fat down, muscle holding.`;tone=C.go;}
+    else if(wad==="down"&&wd==="down"){text=`Weight and waist falling together (${w.toFixed(2)} lb/wk, ${wa.toFixed(2)}"/wk). Fat loss.`;tone=C.go;}
+    else if(wad==="down"&&wd==="up"){text=`Waist down while weight climbs. Lean gain / recomposition.`;tone=C.go;}
+    else if(wd==="down"&&armd==="down"){text=`Weight down ${w.toFixed(2)} lb/wk but arms shrinking. Watch protein and training to hold muscle.`;tone=C.warn;}
+    else if(wd==="down"){text=`Weight down ${w.toFixed(2)} lb/wk, waist flat. Mostly on track; watch composition.`;tone=C.go;}
+    else if(wd==="up"){text=`Weight up ${w.toFixed(2)} lb/wk, waist flat. Surplus; lean if intended, watch if not.`;tone=C.warn;}
+    else{text=`Body metrics roughly flat. Hold or adjust the lever you want to move.`;tone=C.dim;}
+    return{text,tone};
+  },[bodyData]);
+
+  const align=(a,b)=>{const weeks=Object.keys(a).filter(w=>w in b).sort();return weeks.map(w=>[a[w],b[w]]);};
+  const confOf=n=>n<4?{t:"insufficient",c:C.dim}:n<7?{t:"low",c:C.warn}:{t:"emerging",c:C.go};
+
   return(<div className="app">
     <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
     <style>{CSS}</style>
@@ -795,6 +838,22 @@ export default function App(){
           </div>)}
         </div>;
       })()}
+
+      <div className="eyebrow"><span style={{color:C.amber}}>Insights</span></div>
+      {bodyVerdict?<div className="card"><div style={{fontFamily:mono,fontSize:11,color:C.dim,marginBottom:4}}>BODY COMPOSITION</div><div style={{color:bodyVerdict.tone,fontSize:14,lineHeight:1.4}}>{bodyVerdict.text}</div></div>:<div className="empty">Log measurements over time to read composition</div>}
+      {(()=>{const cards=[
+          {k:"Balance \u2194 strength",a:weeklyAgg.balance,b:weeklyAgg.strength,pos:"surplus weeks track higher strength",neg:"deficit weeks track lower strength"},
+          {k:"Cardio kcal \u2194 weight",a:weeklyAgg.cardioKcal,b:weeklyAgg.weight,pos:"more cardio tracks higher weight",neg:"more cardio tracks lower weight"},
+          {k:"Balance \u2194 weight",a:weeklyAgg.balance,b:weeklyAgg.weight,pos:"surplus tracks weight gain",neg:"deficit tracks weight loss"}];
+        return cards.map((c,i)=>{const pairs=align(c.a,c.b);const n=pairs.length;const r=pearson(pairs);const cf=confOf(n);
+          return<div key={i} className="card">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <span style={{fontFamily:mono,fontSize:11,color:C.dim}}>{c.k.toUpperCase()}</span>
+              <span style={{fontFamily:mono,fontSize:10,color:cf.c,border:`1px solid ${cf.c}`,borderRadius:3,padding:"1px 6px"}}>{cf.t}</span>
+            </div>
+            {n<4||r==null?<div style={{color:C.steel,fontSize:13}}>Building · needs \u22654 aligned weeks (have {n})</div>:
+              <div style={{fontSize:14,color:C.bone}}>r = <b style={{color:Math.abs(r)>=0.5?C.amber:C.steel}}>{r.toFixed(2)}</b> · {Math.abs(r)<0.25?"no clear link":(r>0?c.pos:c.neg)} <span style={{color:C.dim}}>(n={n})</span></div>}
+          </div>;});})()}
 
       <div className="eyebrow"><span style={{color:C.arc}}>Strength index</span></div>
       {(()=>{const wkRatios={};
