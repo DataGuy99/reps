@@ -6,6 +6,7 @@ const ld=(k,fb)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb}
 const sv=(k,d)=>{try{localStorage.setItem(k,JSON.stringify(d))}catch(e){console.error(e)}};
 const SK={anchors:"wg2-anchors",anchorLog:"wg2-anchor-log",accLog:"wg2-acc-log",fatigue:"wg2-fatigue",
   banned:"wg2-banned",prefs:"wg2-prefs",nutrition:"wg2-nutrition",body:"wg2-body",cardio:"wg2-cardio",
+  daytargets:"wg2-daytargets",dayoverrides:"wg2-dayoverrides",
   meso:"wg2-meso",settings:"wg2-settings",history:"wg2-history"};
 
 // ── DESIGN TOKENS ──
@@ -134,6 +135,7 @@ const ACC_POOL=EXERCISES.filter(e=>!ALL_PAT_EX.has(e.name));
 const DAY_TARGETS={long_ride:{cal:2900,pro:190,carb:320,fat:95},med_ride:{cal:2600,pro:190,carb:258,fat:90},
   hiit:{cal:2400,pro:190,carb:208,fat:90},lift:{cal:2400,pro:190,carb:208,fat:90},rest:{cal:2100,pro:190,carb:133,fat:90}};
 const DAY_LABELS={long_ride:"Long ride",med_ride:"Med ride",hiit:"HIIT",lift:"Lift",rest:"Rest"};
+const DOW3=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
 // ── PROGRESSION ──
 // ── BODYWEIGHT PROGRESSION ──
@@ -388,7 +390,10 @@ export default function App(){
   const[meso,setMeso]=useState(()=>ld(SK.meso,{startDate:null,length:5}));
   const[sessHist,setSessHist]=useState(()=>ld(SK.history,[]));
   const[setup,setSetup]=useState(false);
-  const[dayType,setDayType]=useState("lift");
+  const[dayTargets,setDayTargets]=useState(()=>ld(SK.daytargets,Array.from({length:7},()=>({cal:2400,pro:190,carb:208,fat:90}))));
+  const[dayOverrides,setDayOverrides]=useState(()=>ld(SK.dayoverrides,{}));
+  const[logDate,setLogDate]=useState(()=>new Date().toISOString().slice(0,10));
+  const[showTgtEd,setShowTgtEd]=useState(false);
   const[accCount]=useState(3);
   const[sessionStart,setSessionStart]=useState(null);
   const[sessionMode,setSessionMode]=useState("full");
@@ -398,9 +403,11 @@ export default function App(){
   const mesoState=getMesoState(meso);
   const weekVol=useMemo(()=>calcWeeklyVolume(anchorLog,accLog),[anchorLog,accLog]);
   const today=new Date().toISOString().slice(0,10);
-  const targets=DAY_TARGETS[dayType]||DAY_TARGETS.lift;
-  const todayNut=nutrition.filter(d=>d.date===today);
-  const nutTotals=todayNut.reduce((s,e)=>({cal:s.cal+e.cal,pro:s.pro+e.pro,carb:s.carb+e.carb,fat:s.fat+e.fat}),{cal:0,pro:0,carb:0,fat:0});
+  const dow=new Date(logDate+"T00:00:00").getDay();
+  const ovrKey=dayOverrides[logDate];
+  const targets=ovrKey?(DAY_TARGETS[ovrKey]||DAY_TARGETS.lift):(dayTargets[dow]||DAY_TARGETS.lift);
+  const dayNut=nutrition.filter(d=>d.date===logDate);
+  const nutTotals=dayNut.reduce((s,e)=>({cal:s.cal+e.cal,pro:s.pro+e.pro,carb:s.carb+e.carb,fat:s.fat+e.fat}),{cal:0,pro:0,carb:0,fat:0});
 
   const initSession=useCallback(()=>{
     const sets={};const isDeload=mesoState.phase==="deload";
@@ -486,9 +493,11 @@ export default function App(){
 
   // Nutrition
   const[nCal,setNCal]=useState("");const[nPro,setNPro]=useState("");const[nCarb,setNCarb]=useState("");const[nFat,setNFat]=useState("");const[nNote,setNNote]=useState("");
-  const addNut=useCallback(()=>{if(!nCal)return;const e={date:today,cal:+nCal||0,pro:+nPro||0,carb:+nCarb||0,fat:+nFat||0,note:nNote,time:new Date().toISOString()};
-    setNutrition(p=>{const n=[...p,e].slice(-1000);sv(SK.nutrition,n);return n;});setNCal("");setNPro("");setNCarb("");setNFat("");setNNote("");},[nCal,nPro,nCarb,nFat,nNote,today]);
+  const addNut=useCallback(()=>{if(!nCal)return;const e={date:logDate,cal:+nCal||0,pro:+nPro||0,carb:+nCarb||0,fat:+nFat||0,note:nNote,time:new Date().toISOString()};
+    setNutrition(p=>{const n=[...p,e].slice(-1000);sv(SK.nutrition,n);return n;});setNCal("");setNPro("");setNCarb("");setNFat("");setNNote("");},[nCal,nPro,nCarb,nFat,nNote,logDate]);
   const delNut=useCallback(time=>{setNutrition(p=>{const n=p.filter(e=>e.time!==time);sv(SK.nutrition,n);return n;});},[]);
+  const setDT=(idx,field,val)=>setDayTargets(p=>{const n=p.map((d,i)=>i===idx?{...d,[field]:+val||0}:d);sv(SK.daytargets,n);return n;});
+  const setOvr=key=>setDayOverrides(p=>{const n={...p};if(key)n[logDate]=key;else delete n[logDate];sv(SK.dayoverrides,n);return n;});
   // Body
   const[bW,setBW]=useState("");const[bWa,setBWa]=useState("");const[bNa,setBNa]=useState("");const[bLA,setBLA]=useState("");const[bRA,setBRA]=useState("");const[bLT,setBLT]=useState("");const[bRT,setBRT]=useState("");
   const addBody=useCallback(()=>{if(!bW&&!bWa&&!bNa&&!bLA&&!bRA&&!bLT&&!bRT)return;
@@ -641,13 +650,30 @@ export default function App(){
 
     {/* ════ LOG ════ */}
     {view==="log"&&<>
-      <div className="eyebrow"><span style={{color:C.amber}}>Day type</span></div>
-      <div className="daytypes">
-        {Object.keys(DAY_TARGETS).map(dt=><button key={dt} className={`daytype${dayType===dt?" on":""}`} onClick={()=>setDayType(dt)}>{DAY_LABELS[dt]}</button>)}
+      <div className="eyebrow"><span style={{color:C.amber}}>Nutrition</span>
+        <button className="btn-ghost" style={{height:30,fontSize:11,padding:"0 10px"}} onClick={()=>setShowTgtEd(s=>!s)}>{showTgtEd?"Done":"Edit targets"}</button>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+        <input className="in sm" type="date" max={today} value={logDate} onChange={e=>setLogDate(e.target.value||today)} style={{flex:1}}/>
+        <span style={{fontFamily:mono,fontSize:13,color:logDate===today?C.amber:C.steel,minWidth:64}}>{logDate===today?"Today":DOW3[dow]}</span>
+      </div>
+      {showTgtEd&&<div className="card" style={{marginBottom:8}}>
+        <div style={{fontFamily:mono,fontSize:11,color:C.dim,marginBottom:6}}>WEEKLY TARGETS · cal / P / C / F</div>
+        {[1,2,3,4,5,6,0].map(idx=><div key={idx} style={{display:"flex",gap:5,alignItems:"center",marginBottom:5}}>
+          <span style={{width:34,fontFamily:mono,fontSize:12,color:C.steel,flexShrink:0}}>{DOW3[idx]}</span>
+          <input className="in sm" type="number" inputMode="numeric" placeholder="cal" value={dayTargets[idx].cal||""} onChange={e=>setDT(idx,"cal",e.target.value)} style={{flex:1.4}}/>
+          <input className="in sm" type="number" inputMode="numeric" placeholder="P" value={dayTargets[idx].pro||""} onChange={e=>setDT(idx,"pro",e.target.value)} style={{flex:1}}/>
+          <input className="in sm" type="number" inputMode="numeric" placeholder="C" value={dayTargets[idx].carb||""} onChange={e=>setDT(idx,"carb",e.target.value)} style={{flex:1}}/>
+          <input className="in sm" type="number" inputMode="numeric" placeholder="F" value={dayTargets[idx].fat||""} onChange={e=>setDT(idx,"fat",e.target.value)} style={{flex:1}}/>
+        </div>)}
+      </div>}
+      <div className="daytypes" style={{flexWrap:"wrap"}}>
+        <button className={`daytype${!ovrKey?" on":""}`} onClick={()=>setOvr(null)}>Auto</button>
+        {Object.keys(DAY_TARGETS).map(dt=><button key={dt} className={`daytype${ovrKey===dt?" on":""}`} onClick={()=>setOvr(dt)}>{DAY_LABELS[dt]}</button>)}
       </div>
 
       <div className="card">
-        <div className="target-line">Target {targets.cal} cal · P {targets.pro}g · C {targets.carb}g · F {targets.fat}g</div>
+        <div className="target-line">Target {targets.cal} cal · P {targets.pro}g · C {targets.carb}g · F {targets.fat}g <span style={{color:C.dim}}>({ovrKey?`${DAY_LABELS[ovrKey]} override`:`${DOW3[dow]} default`})</span></div>
         <div className="today-line">
           <span style={{color:nutTotals.cal>targets.cal?C.alarm:C.go,fontWeight:600}}>{nutTotals.cal}</span>
           <span style={{color:C.dim}}>/{targets.cal} cal</span>
@@ -664,8 +690,8 @@ export default function App(){
           <input className="in sm" type="text" placeholder="note" value={nNote} onChange={e=>setNNote(e.target.value)} style={{flex:1}}/>
           <button className="btn btn-amber" style={{width:52,height:40,fontSize:18,borderRadius:9}} onClick={addNut}>+</button>
         </div>
-        {todayNut.length>0&&<div style={{marginTop:8}}>
-          {todayNut.slice().reverse().map((e,i)=><div key={i} className="entry">
+        {dayNut.length>0&&<div style={{marginTop:8}}>
+          {dayNut.slice().reverse().map((e,i)=><div key={i} className="entry">
             <span>{e.cal} cal · P{e.pro} C{e.carb} F{e.fat} {e.note&&<span style={{color:C.dim}}> — {e.note}</span>}</span>
             <button className="x" onClick={()=>delNut(e.time)}>✕</button>
           </div>)}
