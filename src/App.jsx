@@ -137,7 +137,7 @@ const DAY_TARGETS={long_ride:{cal:2900,pro:190,carb:320,fat:95},med_ride:{cal:26
   hiit:{cal:2400,pro:190,carb:208,fat:90},lift:{cal:2400,pro:190,carb:208,fat:90},rest:{cal:2100,pro:190,carb:133,fat:90}};
 const DAY_LABELS={long_ride:"Long ride",med_ride:"Med ride",hiit:"HIIT",lift:"Lift",rest:"Rest"};
 // Monday-anchored week key (YYYY-MM-DD of that week's Monday); sortable.
-function weekStart(dstr){const d=new Date(dstr+"T00:00:00");const off=(d.getDay()+6)%7;d.setDate(d.getDate()-off);return d.toISOString().slice(0,10);}
+function weekStart(dstr){const ds=String(dstr).slice(0,10);const d=new Date(ds+"T00:00:00");const off=(d.getDay()+6)%7;d.setDate(d.getDate()-off);return d.toISOString().slice(0,10);}
 // Least-squares slope of [{x,y}] points (0 if <2 points).
 function slope(pts){const n=pts.length;if(n<2)return 0;const sx=pts.reduce((a,p)=>a+p.x,0),sy=pts.reduce((a,p)=>a+p.y,0),sxy=pts.reduce((a,p)=>a+p.x*p.y,0),sxx=pts.reduce((a,p)=>a+p.x*p.x,0);const d=n*sxx-sx*sx;return d===0?0:(n*sxy-sx*sy)/d;}
 
@@ -796,6 +796,24 @@ export default function App(){
         </div>;
       })()}
 
+      <div className="eyebrow"><span style={{color:C.arc}}>Strength index</span></div>
+      {(()=>{const wkRatios={};
+        PATTERNS.forEach(p=>{const nm=anchors[p.id];if(!nm)return;const h=anchorLog[nm];if(!h||!h.length)return;
+          const ex=EXERCISES.find(x=>x.name===nm);const bw=!!ex?.bw;
+          const val=e=>{if(bw){const ss=e.sets.filter(s=>s.reps);return ss.length?ss.reduce((a,s)=>a+(+s.reps),0)/ss.length:0;}const b=e.sets.filter(s=>s.weight&&s.reps).sort((a,b)=>(b.weight*b.reps)-(a.weight*a.reps))[0];return b?b.weight*(1+b.reps/30):0;};
+          const base=val(h[0]);if(!base)return;
+          h.forEach(e=>{const v=val(e);if(!v)return;const w=weekStart(e.date);(wkRatios[w]=wkRatios[w]||[]).push(v/base);});});
+        const weeks=Object.keys(wkRatios).sort().slice(-10);
+        if(!weeks.length)return<div className="empty">No anchor data yet</div>;
+        const idx=weeks.map(w=>Math.round(wkRatios[w].reduce((a,b)=>a+b,0)/wkRatios[w].length*100));
+        const mn=Math.min(...idx),mx=Math.max(...idx),rng=(mx-mn)||1;
+        const last=idx[idx.length-1],delta=idx.length>=2?last-idx[0]:0;
+        return<div className="card plate">
+          <div className="sub" style={{marginTop:0,marginBottom:6}}>Avg across anchors vs baseline · 100 = start</div>
+          <div className="bars">{idx.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max(((v-mn)/rng)*100,8)}%`,background:i===idx.length-1?C.arc:`${C.arc}55`}}/>)}</div>
+          <div className="stat"><span><b style={{color:C.bone}}>{last}</b>{idx.length>=2&&<span style={{color:delta>=0?C.go:C.alarm}}> ({delta>0?"+":""}{delta})</span>} · {weeks.length} wks</span></div>
+        </div>;})()}
+
       <div className="eyebrow"><span style={{color:C.arc}}>Anchor progression</span></div>
       {PATTERNS.map(p=>{
         const nm=anchors[p.id];if(!nm)return null;const h=anchorLog[nm];
@@ -825,7 +843,48 @@ export default function App(){
         </div>);
       })}
 
+      <div className="eyebrow"><span style={{color:C.go}}>Strength index</span></div>
+      {(()=>{const bwAt=date=>{const wd=bodyData.filter(e=>e.weight);if(!wd.length)return 0;let best=wd[0];for(const e of wd){if(e.date<=date)best=e;else break;}return +best.weight||0;};
+        const metricFor=(ex,e)=>{if(ex?.bw){const ss=e.sets.filter(s=>s.reps);return ss.length?ss.reduce((a,s)=>a+(+s.reps),0)/ss.length:0;}const b=e.sets.filter(s=>s.weight&&s.reps).sort((a,b)=>(b.weight*b.reps)-(a.weight*a.reps))[0];return b?b.weight*(1+b.reps/30):0;};
+        const idxByWeek={};
+        PATTERNS.forEach(p=>{const nm=anchors[p.id];if(!nm)return;const h=anchorLog[nm];if(!h||!h.length)return;const ex=EXERCISES.find(x=>x.name===nm);
+          const series=h.map(e=>({w:weekStart(e.date),v:metricFor(ex,e)})).filter(x=>x.v>0);if(!series.length)return;const base=series[0].v;
+          const perWeek={};series.forEach(x=>{perWeek[x.w]=x.v;});
+          Object.entries(perWeek).forEach(([w,v])=>{if(!idxByWeek[w])idxByWeek[w]={s:0,c:0};idxByWeek[w].s+=v/base;idxByWeek[w].c++;});});
+        const weeks=Object.keys(idxByWeek).sort().slice(-10);if(weeks.length<1)return<div className="empty">No anchor data yet</div>;
+        const idx=weeks.map(w=>Math.round((idxByWeek[w].s/idxByWeek[w].c)*100));const mn=Math.min(...idx,100),mx=Math.max(...idx,100),rng=mx-mn||1;const cur=idx[idx.length-1];
+        return<div className="card plate">
+          <div className="sub" style={{marginTop:0,marginBottom:6}}>Avg of trained anchors vs their baseline (100)</div>
+          <div className="bars">{idx.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max(((v-mn)/rng)*100,8)}%`,background:i===idx.length-1?C.go:`${C.go}55`}}/>)}</div>
+          <div className="stat"><span><b style={{color:C.bone}}>{cur}</b> index · <span style={{color:cur>=100?C.go:C.alarm}}>{cur>100?"+":""}{cur-100}%</span> vs start</span></div>
+        </div>;})()}
+
+      <div className="eyebrow"><span style={{color:C.arc}}>Weekly tonnage</span></div>
+      {(()=>{const bwAt=date=>{const wd=bodyData.filter(e=>e.weight);if(!wd.length)return 0;let best=wd[0];for(const e of wd){if(e.date<=date)best=e;else break;}return +best.weight||0;};
+        const tByWeek={};
+        PATTERNS.forEach(p=>{const nm=anchors[p.id];if(!nm)return;const h=anchorLog[nm];if(!h)return;const ex=EXERCISES.find(x=>x.name===nm);const isBw=!!ex?.bw;
+          h.forEach(e=>{const w=weekStart(e.date);const bodyW=isBw?bwAt(e.date):0;let ton=0;e.sets.forEach(s=>{const reps=+s.reps||0;const wt=(+s.weight||0)+bodyW;ton+=reps*wt;});if(ton>0)tByWeek[w]=(tByWeek[w]||0)+ton;});});
+        const weeks=Object.keys(tByWeek).sort().slice(-8);if(!weeks.length)return<div className="empty">No anchor data yet</div>;
+        const tons=weeks.map(w=>Math.round(tByWeek[w]));const tmax=Math.max(...tons,1);
+        return<div className="card">
+          <div className="sub" style={{marginTop:0,marginBottom:6}}>Anchor volume load · {(tons[tons.length-1]/1000).toFixed(1)}k lb this wk</div>
+          <div className="bars">{tons.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/tmax)*100,8)}%`,background:i===tons.length-1?C.arc:`${C.arc}55`}}/>)}</div>
+        </div>;})()}
+
       <VolDash weekVol={weekVol}/>
+
+      <div className="eyebrow"><span style={{color:C.amber}}>Training volume</span></div>
+      {(()=>{const wk={};
+        Object.entries(anchorLog).forEach(([nm,h])=>{const ex=EXERCISES.find(x=>x.name===nm);const bw=!!ex?.bw;
+          (h||[]).forEach(e=>{const w=weekStart(e.date);e.sets.forEach(s=>{if(!s.reps)return;const load=bw?((+s.weight||0)+(latestBW||0)):(+s.weight||0);if(load>0)wk[w]=(wk[w]||0)+load*(+s.reps);});});});
+        (accLog||[]).forEach(entry=>{const w=weekStart(entry.date);(entry.exercises||[]).forEach(ax=>{const ex=EXERCISES.find(x=>x.name===ax.name);const bw=!!ex?.bw;
+          (ax.sets||[]).forEach(s=>{if(!s.reps)return;const load=bw?((+s.weight||0)+(latestBW||0)):(+s.weight||0);if(load>0)wk[w]=(wk[w]||0)+load*(+s.reps);});});});
+        const weeks=Object.keys(wk).sort().slice(-8);if(!weeks.length)return<div className="empty">No volume yet</div>;
+        const tons=weeks.map(w=>Math.round(wk[w]));const mx=Math.max(...tons,1);
+        return<div className="card">
+          <div className="sub" style={{marginTop:0,marginBottom:6}}>Weekly tonnage · lb x reps · {tons[tons.length-1].toLocaleString()} this wk</div>
+          <div className="bars">{tons.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/mx)*100,8)}%`,background:i===tons.length-1?C.go:`${C.go}55`}}/>)}</div>
+        </div>;})()}
 
       <div className="eyebrow"><span style={{color:C.amber}}>Body</span></div>
       {bodyData.length===0?<div className="empty">No measurements yet</div>:
@@ -847,6 +906,10 @@ export default function App(){
           </div>
           <div className="stat"><span><b style={{color:C.bone}}>{wd[wd.length-1].w}lb</b> · <span style={{color:perWk<=0?C.go:C.alarm}}>{perWk>0?"+":""}{perWk.toFixed(2)} lb/wk</span> · {wd.length} weigh-ins</span></div>
         </div>;})()}
+      {(()=>{const fields=[["waist","Waist",true],["navel","Navel",true],["lArm","L arm",false],["rArm","R arm",false],["lThigh","L thigh",false],["rThigh","R thigh",false]];
+        const rows=fields.map(([k,label,downGood])=>{const pts=bodyData.filter(e=>e[k]).map(e=>({x:new Date(String(e.date).slice(0,10)+"T00:00:00").getTime()/86400000,y:+e[k]}));if(pts.length<2)return null;const perWk=slope(pts)*7;const good=downGood?perWk<=0:perWk>=0;return{label,perWk,good};}).filter(Boolean);
+        if(!rows.length)return null;
+        return<div className="delta-box"><div style={{fontFamily:mono,fontSize:11,color:C.dim,marginBottom:4}}>SLOPE /wk</div>{rows.map((r,i)=><div key={i}>{r.label} <span style={{color:r.good?C.go:C.alarm}}>{r.perWk>0?"+":""}{r.perWk.toFixed(2)}"</span></div>)}</div>;})()}
       {bodyData.length>=2&&(()=>{const f=bodyData[0],l=bodyData[bodyData.length-1];
         return<div className="delta-box">
           {f.weight&&l.weight?<div>Weight {f.weight} → {l.weight} <span style={{color:l.weight<f.weight?C.go:C.alarm}}>({l.weight>f.weight?"+":""}{(l.weight-f.weight).toFixed(1)})</span></div>:null}
