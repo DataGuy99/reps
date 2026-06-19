@@ -292,7 +292,7 @@ function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRang
       allM.forEach(({m,p:pct})=>{const w=pct/100;const head=Math.max(0,cap(m)-(load[m]||0));const frac=head/(cap(m)||1);fit+=frac*w*fw[m];wsum+=w;});
       fit=wsum?fit/wsum:0;
       const underBoost=allM.some(({m})=>weekVol[m]<(VOL_LANDMARKS[m]?.mev||6))?1.3:1;
-      const recencyPen=recentNames.includes(ex.name)?0.3:1;  // cycle recent picks out
+      const recencyPen=recentNames.includes(ex.name)?(0.3+(stars/3)*0.7):1;  // recent picks cycle out; stars protect favorites (3 stars = no penalty)
       return{ex,allM,score:mult*fit*underBoost*recencyPen};
     }).filter(x=>x.score>0.001).sort((a,b)=>b.score-a.score);
     if(!scored.length)break;                               // nothing left with headroom: round-up complete
