@@ -276,7 +276,7 @@ function anchorMuscleLoad(anchors,sets){
   return load;
 }
 
-function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad){
+function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRange=[10,15]){
   const pool=ACC_POOL.filter(e=>!banned.includes(e.name));
   const cap=m=>VOL_LANDMARKS[m]?.mav||12;                 // per-session target ceiling
   const load={};MUSCLES.forEach(m=>load[m]=(anchorLoad&&anchorLoad[m])||0); // seed with anchor load
@@ -292,14 +292,15 @@ function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad){
       allM.forEach(({m,p:pct})=>{const w=pct/100;const head=Math.max(0,cap(m)-(load[m]||0));const frac=head/(cap(m)||1);fit+=frac*w*fw[m];wsum+=w;});
       fit=wsum?fit/wsum:0;
       const underBoost=allM.some(({m})=>weekVol[m]<(VOL_LANDMARKS[m]?.mev||6))?1.3:1;
-      return{ex,allM,score:mult*fit*underBoost};
+      const recencyPen=recentNames.includes(ex.name)?0.3:1;  // cycle recent picks out
+      return{ex,allM,score:mult*fit*underBoost*recencyPen};
     }).filter(x=>x.score>0.001).sort((a,b)=>b.score-a.score);
     if(!scored.length)break;                               // nothing left with headroom: round-up complete
     const top=scored.slice(0,Math.min(6,scored.length));   // weighted-random among top for variety
     const tot=top.reduce((s,x)=>s+x.score,0);let r=Math.random()*tot,pick=top[0];
     for(const c of top){r-=c.score;if(r<=0){pick=c;break;}}
     pick.allM.forEach(({m,p:pct})=>{load[m]=(load[m]||0)+ACC_SETS*(pct/100);}); // add this pick's load
-    const sug=getProgression(pick.ex.name,ld(SK.accLog,{})||{},[10,15],2,bwLoad);
+    const sug=getProgression(pick.ex.name,ld(SK.accLog+"_prog",{}),repRange,2,bwLoad); // keyed history (was reading the flat array)
     sel.push({id:crypto.randomUUID(),name:pick.ex.name,eq:pick.ex.eq,cat:pick.ex.cat,p:pick.ex.p,s:pick.ex.s,
       sugReps:sug.reps||10,sugWeight:sug.weight||"",locked:false,
       sets:[{reps:sug.reps||"",weight:sug.weight||"",rir:""},{reps:sug.reps||"",weight:sug.weight||"",rir:""}]});
@@ -463,7 +464,7 @@ export default function App(){
       const n=isDeload?2:(prog.sets||3);
       const w=isDeload&&prog.weight?Math.round(+prog.weight*0.7):prog.weight;
       // ── LIVE: flat prescription (every set same weight) ──
-      sets[p.id]=Array.from({length:n},()=>({reps:prog.reps||"",weight:w||"",rir:"",pain:"",ts:null}));
+      sets[p.id]=Array.from({length:n},()=>({reps:prog.reps||"",weight:w||"",rir:"",pain:""}));
       // ── DORMANT: ramp/progressive pre-fill. Marker: RAMP_PREFILL ──
       // To enable ascending per-set loading: comment out the flat line above,
       // uncomment the block below. Reuses last session's ramp shape (prog.ramp),
@@ -481,8 +482,10 @@ export default function App(){
       // }
     });
     setAnchorSets(sets);
-    setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol,anchorMuscleLoad(anchors,sets)));
-  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW]);
+    const recentNames=[...new Set((accLog||[]).slice(-2).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
+    const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
+    setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol,anchorMuscleLoad(anchors,sets),recentNames,accRange));
+  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW,accLog]);
 
   useEffect(()=>{if(allSet&&!setup)initSession();},[allSet,setup]);
 
@@ -497,7 +500,9 @@ export default function App(){
   const rerollAcc=useCallback(()=>{const locked=accs.filter(a=>a.locked);
     const seed=anchorMuscleLoad(anchors,anchorSets);
     locked.forEach(a=>[...a.p,...a.s].forEach(({m,p:pct})=>{seed[m]=(seed[m]||0)+(a.sets.length)*(pct/100);}));
-    const newAccs=genAcc(accCount-locked.length,banned,prefs,fatigue,weekVol,seed);setAccs([...locked,...newAccs]);},[accs,accCount,banned,prefs,fatigue,weekVol,anchors,anchorSets]);
+    const recentNames=[...new Set((accLog||[]).slice(-2).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
+    const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
+    const newAccs=genAcc(accCount-locked.length,banned,prefs,fatigue,weekVol,seed,recentNames,accRange);setAccs([...locked,...newAccs]);},[accs,accCount,banned,prefs,fatigue,weekVol,anchors,anchorSets,accLog]);
 
   const saveSession=useCallback(()=>{
     const newAL={...anchorLog};
