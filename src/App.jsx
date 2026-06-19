@@ -8,7 +8,7 @@ const SK={anchors:"wg2-anchors",anchorLog:"wg2-anchor-log",accLog:"wg2-acc-log",
   banned:"wg2-banned",prefs:"wg2-prefs",nutrition:"wg2-nutrition",body:"wg2-body",cardio:"wg2-cardio",
   daytargets:"wg2-daytargets",dayoverrides:"wg2-dayoverrides",
   profile:"wg2-profile",
-  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal"};
+  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix"};
 
 // ── DESIGN TOKENS ──
 const mono="'JetBrains Mono','Fira Code',monospace";
@@ -178,12 +178,11 @@ const CARDIO_MET={steady:7,hiit:9};                    // fallback when kcal/kg 
 // reps (or seconds for holds). Reads sets by reps only, never the weight filter.
 // Returns the same 9-key shape as C; weight:"" so cards/gen show no lb target.
 function bwProgression(ex,last,repRange,targetRIR,bodyWeight){
+  const eccOn=ld(SK.eccentrix,true);
   const isHold=!!ex.hold,unit=isHold?"s":"r";
-  const eff=s=>(+s.reps||0)+(+s.ecc||0)*ECC_DISCOUNT;   // effective reps incl. discounted eccentrics
-  const ls=last.sets.filter(s=>s.reps||s.ecc);
+  const eff=s=>(+s.reps||0)+(eccOn?(+s.ecc||0)*ECC_DISCOUNT:0);   // effective reps incl. discounted eccentrics
+  const ls=last.sets.filter(s=>eccOn?(s.reps||s.ecc):s.reps);
   if(!ls.length)return{weight:"",reps:repRange[0],sets:3,note:`First session. ${isHold?"Hold for time":`Hit ${repRange[0]} reps`} @ RIR ${targetRIR}.`,isNew:true,ramp:null};
-  const hasEcc=ls.some(s=>+s.ecc>0);
-  const avgR=Math.round(ls.reduce((a,s)=>a+eff(s),0)/ls.length);
   const added=ls.map(s=>+s.weight||0);
   const avgAdd=Math.round(added.reduce((a,b)=>a+b,0)/added.length);
   const load=(+bodyWeight||0)+avgAdd;
@@ -191,6 +190,23 @@ function bwProgression(ex,last,repRange,targetRIR,bodyWeight){
   const rs=ls.filter(s=>s.rir!=null&&s.rir!=="");
   const avgRIR=rs.length?Math.round(rs.reduce((a,x)=>a+(+x.rir),0)/rs.length*10)/10:null;
   const step=isHold?5:1,ceiling=repRange[1];
+  // ── ECCENTRIC PHASE: dynamic bodyweight with eccentrics in use — shift mix toward all-clean ──
+  if(eccOn&&!isHold){
+    const avgClean=Math.round(ls.reduce((a,s)=>a+(+s.reps||0),0)/ls.length);
+    const avgEcc=Math.round(ls.reduce((a,s)=>a+(+s.ecc||0),0)/ls.length);
+    if(avgEcc>0){
+      const total=avgClean+avgEcc;
+      if(avgRIR!==null&&avgRIR<1)                          // near failure even with assist: hold the mix
+        return{weight:"",reps:avgClean,eccTarget:avgEcc,sets:ls.length,note:`${loadStr} · ${avgClean} clean + ${avgEcc} ecc @ RIR ${avgRIR}. Near failure — hold ${avgClean}+${avgEcc}.`,tooHard:true,ramp:added};
+      const tClean=avgClean+1,tEcc=Math.max(0,total-tClean); // trade one eccentric for one clean
+      if(tEcc===0)                                          // reached full clean set: graduate off eccentrics
+        return{weight:"",reps:total,eccTarget:0,sets:ls.length,note:`${loadStr} · ${avgClean} clean + ${avgEcc} ecc → ${total} all clean now. Off eccentrics; build reps from here.`,progressed:true,ramp:added};
+      return{weight:"",reps:tClean,eccTarget:tEcc,sets:ls.length,note:`${loadStr} · last ${avgClean} clean + ${avgEcc} ecc. Do ${tClean} clean + ${tEcc} ecc @ RIR ${targetRIR}.`,ramp:added};
+    }
+  }
+  // ── NORMAL: full clean reps / holds / loaded bodyweight ──
+  const avgR=Math.round(ls.reduce((a,s)=>a+eff(s),0)/ls.length);
+  const hasEcc=eccOn&&ls.some(s=>+s.ecc>0);
   if(avgRIR!==null&&avgRIR<1){const t=Math.max(repRange[0],avgR-step);
     return{weight:"",reps:t,sets:ls.length,note:`${loadStr} · last ${avgR}${unit} @ RIR ${avgRIR}. Near failure, hold ${t}${unit}.`,tooHard:true,ramp:added};}
   if(!isHold&&avgR>=ceiling&&(avgRIR===null||avgRIR<=targetRIR+0.5))
@@ -334,7 +350,7 @@ function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRang
     const nSets=isDeload?1:2;
     sel.push({id:crypto.randomUUID(),name:pick.ex.name,eq:pick.ex.eq,cat:pick.ex.cat,p:pick.ex.p,s:pick.ex.s,
       sugReps:sug.reps||10,sugWeight:sw,locked:false,
-      sets:Array.from({length:nSets},()=>({reps:sug.reps||"",weight:sw||"",rir:""}))});
+      sets:Array.from({length:nSets},()=>({reps:sug.reps||"",weight:sw||"",rir:"",...(sug.eccTarget?{ecc:sug.eccTarget}:{})}))});
     used.add(pick.ex.name);
   }
   return sel;
@@ -470,6 +486,7 @@ export default function App(){
   const[meso,setMeso]=useState(()=>ld(SK.meso,{startDate:null,length:5}));
   const[sessHist,setSessHist]=useState(()=>ld(SK.history,[]));
   const[metGoal,setMetGoal]=useState(()=>ld(SK.metgoal,40));
+  const[eccEnabled,setEccEnabled]=useState(()=>ld(SK.eccentrix,true));
   const[setup,setSetup]=useState(false);
   const[dayTargets,setDayTargets]=useState(()=>ld(SK.daytargets,Array.from({length:7},()=>({cal:2400,pro:190,carb:208,fat:90}))));
   const[dayOverrides,setDayOverrides]=useState(()=>ld(SK.dayoverrides,{}));
@@ -498,7 +515,7 @@ export default function App(){
       const n=isDeload?2:(prog.sets||3);
       const w=isDeload&&prog.weight?Math.round(+prog.weight*0.7):prog.weight;
       // ── LIVE: flat prescription (every set same weight) ──
-      sets[p.id]=Array.from({length:n},()=>({reps:prog.reps||"",weight:w||"",rir:"",pain:""}));
+      sets[p.id]=Array.from({length:n},()=>({reps:prog.reps||"",weight:w||"",rir:"",pain:"",...(prog.eccTarget?{ecc:prog.eccTarget}:{})}));
       // ── DORMANT: ramp/progressive pre-fill. Marker: RAMP_PREFILL ──
       // To enable ascending per-set loading: comment out the flat line above,
       // uncomment the block below. Reuses last session's ramp shape (prog.ramp),
@@ -519,7 +536,7 @@ export default function App(){
     const recentNames=[...new Set((accLog||[]).slice(-2).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
     const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
     setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol,anchorMuscleLoad(anchors,sets),recentNames,accRange,[],isDeload));
-  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW,accLog]);
+  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW,accLog,eccEnabled]);
 
   useEffect(()=>{if(allSet&&!setup)initSession();},[allSet,setup]);
 
@@ -536,7 +553,7 @@ export default function App(){
     locked.forEach(a=>[...a.p,...a.s].forEach(({m,p:pct})=>{seed[m]=(seed[m]||0)+(a.sets.length)*(pct/100);}));
     const recentNames=[...new Set((accLog||[]).slice(-2).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
     const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
-    const newAccs=genAcc(accCount-locked.length,banned,prefs,fatigue,weekVol,seed,recentNames,accRange,locked.map(a=>a.name),isDeload);setAccs([...locked,...newAccs]);},[accs,accCount,banned,prefs,fatigue,weekVol,anchors,anchorSets,accLog,mesoState.phase]);
+    const newAccs=genAcc(accCount-locked.length,banned,prefs,fatigue,weekVol,seed,recentNames,accRange,locked.map(a=>a.name),isDeload);setAccs([...locked,...newAccs]);},[accs,accCount,banned,prefs,fatigue,weekVol,anchors,anchorSets,accLog,mesoState.phase,eccEnabled]);
 
   const saveSession=useCallback(()=>{
     const newAL={...anchorLog};
@@ -747,7 +764,7 @@ export default function App(){
                 <span className="chip" style={{color:chip.c,background:`${chip.c}1c`,border:`1px solid ${chip.c}44`}}>{chip.t}</span>
                 <p>{prog.note}{prog.weight?<span className="tgt"> → {prog.reps}r × {prog.weight}lb</span>:null}</p>
               </div>
-              {sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={true} isHold={!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return !!e.bw&&!e.hold;})()}
+              {sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={true} isHold={!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return !!e.bw&&!e.hold&&eccEnabled;})()}
                 onUp={(idx,f,v)=>updAS(p.id,idx,f,v)} onRm={idx=>rmAS(p.id,idx)}/>)}
               <button className="addset" onClick={()=>addAS(p.id)}>+ set</button>
             </div>);
@@ -771,7 +788,7 @@ export default function App(){
               </div>
             </div>
             <div style={{marginTop:4}}>
-              {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false} isHold={!!(EXERCISES.find(x=>x.name===a.name)||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===a.name)||{};return !!e.bw&&!e.hold;})()}
+              {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false} isHold={!!(EXERCISES.find(x=>x.name===a.name)||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===a.name)||{};return !!e.bw&&!e.hold&&eccEnabled;})()}
                 onUp={(idx,f,v)=>updAcc(a.id,idx,f,v)} onRm={idx=>rmAcc(a.id,idx)}/>)}
             </div>
             <button className="addset" onClick={()=>addAccSet(a.id)}>+ set</button>
@@ -868,6 +885,11 @@ export default function App(){
           <button className={`daytype${profile.sex==="male"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","male")}>M</button>
           <button className={`daytype${profile.sex==="female"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","female")}>F</button>
           {latestBW>0&&<span style={{fontFamily:mono,fontSize:11,color:C.steel,marginLeft:"auto"}}>{latestBW}lb</span>}
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
+          <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>ECCENTRIC</span>
+          <button className={`daytype${eccEnabled?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setEccEnabled(v=>{const n=!v;sv(SK.eccentrix,n);return n;})}>{eccEnabled?"ON":"OFF"}</button>
+          <span style={{fontFamily:mono,fontSize:10,color:C.steel}}>eccentric-assisted bodyweight progression</span>
         </div>
         <div className="grid3">
           <select className="in sm" value={cType} onChange={e=>setCType(e.target.value)} style={{width:96,flexShrink:0}}>
