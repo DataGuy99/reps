@@ -200,6 +200,9 @@ function bwProgression(ex,last,repRange,targetRIR,bodyWeight){
         return{weight:"",reps:total,eccTarget:0,sets:ls.length,note:`${loadStr} · ${avgClean} clean + ${avgEcc} ecc → ${total} all clean now. Off eccentrics; build reps from here.`,progressed:true,ramp:added};
       return{weight:"",reps:tClean,eccTarget:tEcc,sets:ls.length,note:`${loadStr} · last ${avgClean} clean + ${avgEcc} ecc. Do ${tClean} clean + ${tEcc} ecc @ RIR ${targetRIR}.`,ramp:added};
     }
+    else if(avgRIR!==null&&avgRIR<1&&avgClean<ceiling){ // clean failure, no eccentrics yet: start overload to break the plateau
+      return{weight:"",reps:avgClean,eccTarget:1,sets:ls.length,note:`${loadStr} · ${avgClean}r @ RIR ${avgRIR}, clean failure. Add eccentrics → ${avgClean} clean + 1 ecc to push past.`,ramp:added};
+    }
   }
   // ── NORMAL: full clean reps / holds / loaded bodyweight ──
   const avgR=Math.round(ls.reduce((a,s)=>a+eff(s),0)/ls.length);
