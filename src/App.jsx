@@ -1062,12 +1062,6 @@ export default function App(){
         const rows=fields.map(([k,label,downGood])=>{const pts=bodyData.filter(e=>e[k]).map(e=>({x:new Date(String(e.date).slice(0,10)+"T00:00:00").getTime()/86400000,y:+e[k]}));if(pts.length<2)return null;const perWk=slope(pts)*7;const good=downGood?perWk<=0:perWk>=0;return{label,perWk,good};}).filter(Boolean);
         if(!rows.length)return null;
         return<div className="delta-box"><div style={{fontFamily:mono,fontSize:11,color:C.dim,marginBottom:4}}>SLOPE /wk</div>{rows.map((r,i)=><div key={i}>{r.label} <span style={{color:r.good?C.go:C.alarm}}>{r.perWk>0?"+":""}{r.perWk.toFixed(2)}"</span></div>)}</div>;})()}
-      {bodyData.length>=2&&(()=>{const f=bodyData[0],l=bodyData[bodyData.length-1];
-        return<div className="delta-box">
-          {f.weight&&l.weight?<div>Weight {f.weight} → {l.weight} <span style={{color:l.weight<f.weight?C.go:C.alarm}}>({l.weight>f.weight?"+":""}{(l.weight-f.weight).toFixed(1)})</span></div>:null}
-          {f.waist&&l.waist?<div>Waist {f.waist}" → {l.waist}" <span style={{color:l.waist<f.waist?C.go:C.alarm}}>({l.waist>f.waist?"+":""}{(l.waist-f.waist).toFixed(1)})</span></div>:null}
-          {f.navel&&l.navel?<div>Navel {f.navel}" → {l.navel}" <span style={{color:l.navel<f.navel?C.go:C.alarm}}>({l.navel>f.navel?"+":""}{(l.navel-f.navel).toFixed(1)})</span></div>:null}
-        </div>;})()}
 
       <div className="eyebrow"><span style={{color:C.amber}}>Cardio</span></div>
       {cardioData.length===0?<div className="empty">No cardio yet</div>:
