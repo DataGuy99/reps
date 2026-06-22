@@ -410,6 +410,41 @@ function buildAcc(ex,accProg,repRange,bwLoad,isDeload,locked=false){
     sugReps:sug.reps||10,sugWeight:sw,locked,
     sets:Array.from({length:nSets},()=>({reps:sug.reps||"",weight:sw||"",rir:"",...(sug.eccTarget?{ecc:sug.eccTarget}:{})}))};
 }
+// ── SET-COUNT PROGRESSION (mesocycle volume ramp, MEV -> MRV) ──
+// Anchors start near MEV (SET_BASE) and earn +1 set when last session topped its rep range
+// with RIR at/under target (room for more volume), climbing toward a per-exercise ceiling
+// derived from the primary muscle's MRV. Deload cuts to 2. Realizes reps -> add a set ->
+// (load rises via the e1RM/bw model). Research: weekly set progression within a meso then
+// deload is the standard hypertrophy volume-landmark scheme (Israetel/RP; MEV<MAV<MRV).
+const SET_BASE=3, SET_CAP=5;
+function setCeiling(name){
+  const ex=EXERCISES.find(x=>x.name===name);
+  const prim=ex&&ex.p&&[...ex.p].sort((a,b)=>b.p-a.p)[0];
+  const lm=prim&&VOL_LANDMARKS[prim.m];
+  if(!lm)return SET_CAP;
+  return Math.max(SET_BASE,Math.min(SET_CAP,Math.round(lm.mrv/4)));  // ~half weekly MRV, ~2 sessions/wk
+}
+function lastSetCount(name,log){
+  const h=log&&log[name]; if(!h||!h.length)return 0;
+  return h[h.length-1].sets.filter(s=>s.reps&&(s.weight||s.ecc)).length;
+}
+function earnedSet(name,log,repRange,targetRIR){
+  const h=log&&log[name]; if(!h||!h.length)return false;
+  const ls=h[h.length-1].sets.filter(s=>s.reps&&(s.weight||s.ecc)); if(!ls.length)return false;
+  const ex=EXERCISES.find(x=>x.name===name)||{};
+  const rirs=ls.filter(s=>s.rir!=null&&s.rir!=="").map(s=>+s.rir);
+  if(ex.bw){const top=Math.max(...ls.map(s=>+s.reps||0));return top>=repRange[1]&&(!rirs.length||Math.min(...rirs)>=targetRIR);}
+  const best=ls.filter(s=>s.reps&&s.weight).sort((a,b)=>(b.weight*b.reps)-(a.weight*a.reps))[0]; if(!best)return false;
+  const rir=best.rir!=null&&best.rir!==""?+best.rir:null;
+  return (+best.reps)>=repRange[1]&&(rir==null||rir<=targetRIR);
+}
+function setTarget(name,log,repRange,targetRIR,phase){
+  if(phase==="deload")return 2;
+  const cur=lastSetCount(name,log)||SET_BASE;
+  const ceil=setCeiling(name);
+  const t=(earnedSet(name,log,repRange,targetRIR)&&cur<ceil)?cur+1:cur;
+  return Math.max(SET_BASE,Math.min(t,ceil));
+}
 function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRange=[10,15],exclude=[],isDeload=false){
   const pool=ACC_POOL.filter(e=>!banned.includes(e.name));
   const cap=m=>VOL_LANDMARKS[m]?.mav||12;                 // per-session target ceiling
@@ -633,7 +668,7 @@ export default function App(){
     PATTERNS.forEach(p=>{
       if(!anchors[p.id])return;
       const prog=getProgression(anchors[p.id],anchorLog,[6,10],2,latestBW,powerEnabled);
-      const n=isDeload?2:(prog.sets||3);
+      const n=setTarget(anchors[p.id],anchorLog,[6,10],2,mesoState.phase);
       const w=isDeload&&prog.weight?Math.round(+prog.weight*0.7):prog.weight;
       // ── LIVE: flat prescription (every set same weight) ──
       sets[p.id]=Array.from({length:n},()=>({reps:prog.reps||"",weight:w||"",rir:"",pain:"",...(prog.eccTarget?{ecc:prog.eccTarget}:{}),...(prog.power?{pwr:1}:{})}));
@@ -900,6 +935,7 @@ export default function App(){
             const hasPain=sets.some(s=>s.pain!=null&&s.pain!==""&&+s.pain>=6);
             const stripe=hasPain?C.alarm:prog.deload?C.alarm:prog.progressed?C.go:C.arc;
             const chip=prog.deload?{t:"DELOAD",c:C.alarm}:prog.progressed?{t:"LOAD UP",c:C.go}:prog.tooEasy?{t:"ADD REP",c:C.warn}:prog.tooHard?{t:"BACK OFF",c:C.alarm}:prog.isNew?{t:"NEW",c:C.steel}:{t:"TARGET",c:C.arc};
+            const lastN=lastSetCount(anchors[p.id],anchorLog);const tgtN=setTarget(anchors[p.id],anchorLog,[6,10],2,mesoState.phase);const addedSet=lastN>0&&tgtN>lastN&&mesoState.phase!=="deload";
             return(<div key={p.id} className="card" style={{borderLeft:`3px solid ${stripe}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
@@ -910,6 +946,7 @@ export default function App(){
               </div>
               <div className="readout">
                 <span className="chip" style={{color:chip.c,background:`${chip.c}1c`,border:`1px solid ${chip.c}44`}}>{chip.t}</span>
+                {addedSet&&<span className="chip" style={{color:C.go,background:`${C.go}1c`,border:`1px solid ${C.go}44`}}>+1 SET → {tgtN}</span>}
                 <p>{prog.note}{prog.weight?<span className="tgt"> → {prog.reps}r × {prog.weight}lb</span>:null}</p>
               </div>
               {sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={true} isHold={!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return !!e.bw&&!e.hold&&eccEnabled;})()} showPwr={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return powerEnabled&&!e.hold;})()} win={prog.win||POWER_WINDOW}
