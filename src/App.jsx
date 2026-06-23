@@ -135,7 +135,7 @@ const ACC_POOL=EXERCISES.filter(e=>!ALL_PAT_EX.has(e.name));
 const ACC_PER_CAT=4;   // top-N accessories per movement category in the pick window (cross-pattern variety)
 
 // Monday-anchored week key (YYYY-MM-DD of that week's Monday); sortable.
-function weekStart(dstr){const ds=String(dstr).slice(0,10);const d=new Date(ds+"T00:00:00");const off=(d.getDay()+6)%7;d.setDate(d.getDate()-off);return d.toISOString().slice(0,10);}
+function weekStart(dstr){const ds=String(dstr).slice(0,10);const d=new Date(ds+"T00:00:00");const off=d.getDay();d.setDate(d.getDate()-off);return d.toISOString().slice(0,10);}
 // Least-squares slope of [{x,y}] points (0 if <2 points).
 function slope(pts){const n=pts.length;if(n<2)return 0;const sx=pts.reduce((a,p)=>a+p.x,0),sy=pts.reduce((a,p)=>a+p.y,0),sxy=pts.reduce((a,p)=>a+p.x*p.y,0),sxx=pts.reduce((a,p)=>a+p.x*p.x,0);const d=n*sxx-sx*sx;return d===0?0:(n*sxy-sx*sy)/d;}
 
