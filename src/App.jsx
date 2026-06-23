@@ -642,8 +642,8 @@ export default function App(){
   const[sessHist,setSessHist]=useState(()=>ld(SK.history,[]));
   const[editDur,setEditDur]=useState(null);const[editDurVal,setEditDurVal]=useState("");
   const[metGoal,setMetGoal]=useState(()=>ld(SK.metgoal,40));
-  const[eccEnabled,setEccEnabled]=useState(()=>ld(SK.eccentrix,true));
-  const[powerEnabled,setPowerEnabled]=useState(()=>ld(SK.power,false));
+  const[eccEnabled,setEccEnabled]=useState(()=>{sv(SK.eccentrix,false);return false;});
+  const[powerEnabled,setPowerEnabled]=useState(()=>{sv(SK.power,false);return false;});
   const[setup,setSetup]=useState(false);
   const[dayTargets,setDayTargets]=useState(()=>ld(SK.daytargets,Array.from({length:7},()=>({cal:2400,pro:190,carb:208,fat:90}))));
   const[logDate,setLogDate]=useState(()=>new Date().toISOString().slice(0,10));
