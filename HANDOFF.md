@@ -102,7 +102,23 @@ composition verdict flags a fat-gain/recomp pattern.
 
 ---
 
-## 5. Done & deployed (latest commit `e5ca94c`)
+## 5. Done & deployed (latest commit `d7f00f7`)
+**ROADMAP COMPLETE — all of §6 (6.1 power, 6.2 set-count, 6.3 custom anchors) shipped.**
+Session 3 (2025-06-23) also shipped, all CI-green: power timer on bodyweight rows
+(`7b135e9`); per-set editable power timer + expiry alarm (`274ecdb`); anchor-change Done
+button (`99743b4`); pain scoped to squat+hinge + anchor load auto-seed + removed duplicate
+Strength Index (`19348ff`); power/eccentric toggle desync fix + new-anchor power routing
+(`1d0bc1c`); power+eccentric default OFF each session (`915bdd9`); dynamic activeSlots
+refactor (`89593c5`); custom-anchor configurator UI (`d7f00f7`).
+
+**Open follow-ups (optional):** custom-slot exercise picking uses curated PATTERN_MAP lists,
+not full-catalog-by-category; anchor load auto-seed copies raw lb across exercises (no
+per-implement vs total tagging); Power/Eccentric toggle regenerates the whole session
+(rerolls accessories incl. locked) — could scope to anchors-only; configurator reorder uses
+up/down (a drag grip could be added).
+
+---
+## 5b. Prior (commit `e5ca94c`)
 **Session 2025-06-22 shipped (all CI-green):**
 - `e45d84a` POWER (ballistic) mode — global toggle in LIFT mirroring ECCENTRIC (SK `wg2-power`,
   default OFF). Loaded anchors prescribe ~50% e1RM (plate-rounded, editable) × `POWER_REPS`(5)
@@ -167,14 +183,14 @@ keep them research-grounded). Power is DONE (`e45d84a`). Remaining build order: 
   (back-squat Pmax 64.6%, hex-bar DL 59.6% 1RM); Wilson 1993 (30–60% trains force + velocity);
   reviews: submaximal 30–80% 1RM at maximal velocity, reps ~1–5 to preserve bar speed.
 
-### 6.2 Set-count auto-progression  *(owner said "figure it out" — keep it grounded)*
+### 6.2 Set-count auto-progression  — ✅ DONE, shipped `63c1c24`
 - Progression should adjust **set count**, not just reps/weight. Model: a weekly meso ramp —
   start near **MEV**, add a set once the rep range is topped out, climb toward **MRV** across the
   mesocycle, then deload. Use the existing `VOL_LANDMARKS` (mev/mav/mrv) and `meso`
   (startDate/length). New order of operations: **reps → add a set → add load.** Touches session
   generation (`initSession` set counts, `genAcc`) and the meso logic.
 
-### 6.3 Custom-anchor configurator  *(model decided)*
+### 6.3 Custom-anchor configurator  — ✅ DONE, shipped `89593c5` (refactor) + `d7f00f7` (UI)
 - Keep the fixed 6 as the **default** ("best"). Add a **smaller, separate** option to configure/
   select your own anchors and run that custom set for a mesocycle. Integrates cleanly: the
   volume/accessory engine already reads each anchor's *assigned-exercise muscle profile*, not the
