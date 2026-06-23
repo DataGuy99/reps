@@ -652,6 +652,19 @@ export default function App(){
     }
     return PATTERNS.map(p=>({...p,type:p.id}));   // default = the fixed 6, ids unchanged (behavior-preserving)
   },[anchorCfg]);
+  const cfgSet=(fn)=>setAnchorCfg(prev=>{const n=fn(prev);sv(SK.anchorcfg,n);return n;});
+  const newSlotId=()=>"c"+Math.random().toString(36).slice(2,8);
+  const chooseDefault=()=>cfgSet(()=>({mode:"default",slots:[]}));
+  const chooseCustom=()=>{
+    if(anchorCfg.mode==="custom"&&(anchorCfg.slots||[]).length)return;
+    const slots=PATTERNS.map(p=>({id:newSlotId(),type:p.id}));
+    setAnchors(a=>{const na={...a};slots.forEach(s=>{if(a[s.type])na[s.id]=a[s.type];});sv(SK.anchors,na);return na;});  // carry current picks into the new slots
+    cfgSet(()=>({mode:"custom",slots}));
+  };
+  const addSlot=()=>cfgSet(prev=>((prev.slots||[]).length>=12?prev:{...prev,slots:[...prev.slots,{id:newSlotId(),type:"hpress"}]}));
+  const removeSlot=(id)=>cfgSet(prev=>((prev.slots||[]).length<=6?prev:{...prev,slots:prev.slots.filter(s=>s.id!==id)}));
+  const setSlotType=(id,type)=>cfgSet(prev=>({...prev,slots:(prev.slots||[]).map(s=>s.id===id?{...s,type}:s)}));
+  const moveSlot=(id,dir)=>cfgSet(prev=>{const a=[...(prev.slots||[])];const i=a.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=a.length)return prev;[a[i],a[j]]=[a[j],a[i]];return{...prev,slots:a};});
   const[dayTargets,setDayTargets]=useState(()=>ld(SK.daytargets,Array.from({length:7},()=>({cal:2400,pro:190,carb:208,fat:90}))));
   const[logDate,setLogDate]=useState(()=>new Date().toISOString().slice(0,10));
   const[showTgtEd,setShowTgtEd]=useState(false);
@@ -889,14 +902,46 @@ export default function App(){
       </div>
 
       {!allSet||setup?<>
-        <div className="eyebrow"><span style={{color:C.arc}}>{allSet?"Change anchors · pick, then Done":"Select 6 anchors"}</span>{allSet&&setup&&<button className="btn-ghost act" onClick={()=>setSetup(false)}>Done</button>}</div>
-        {activeSlots.map(p=><div key={p.id} className="card plate">
-          <div className="pat-eyebrow">{p.full}</div>
-          <div className="pillwrap">
-            {(PATTERN_MAP[p.type]||[]).filter(n=>!banned.includes(n)).map(name=>(
-              <button key={name} className={`pill${anchors[p.id]===name?" on":""}`} onClick={()=>selAnchor(p.id,name)}>{name}</button>))}
-          </div>
-        </div>)}
+        <div className="eyebrow"><span style={{color:C.arc}}>{allSet?"Anchors · pick, then Done":"Set up anchors"}</span>{allSet&&setup&&<button className="btn-ghost act" onClick={()=>setSetup(false)}>Done</button>}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+          <button onClick={chooseDefault} className="card plate" style={{textAlign:"left",cursor:"pointer",border:`1.5px solid ${anchorCfg.mode!=="custom"?C.arc:C.line}`,padding:14}}>
+            <div style={{fontFamily:disp,fontSize:17,color:anchorCfg.mode!=="custom"?C.bone:C.steel,lineHeight:1.1}}>Default anchor configuration</div>
+            <div style={{fontFamily:mono,fontSize:11,color:C.dim,marginTop:4}}>The standard 6 · H/V press, H/V pull, squat, hinge.</div>
+          </button>
+          <button onClick={chooseCustom} className="card" style={{textAlign:"left",cursor:"pointer",border:`1px solid ${anchorCfg.mode==="custom"?C.arc:C.line}`,padding:10,opacity:anchorCfg.mode==="custom"?1:0.72}}>
+            <div style={{fontFamily:disp,fontSize:13,color:anchorCfg.mode==="custom"?C.bone:C.steel,lineHeight:1.1}}>Custom configuration</div>
+            <div style={{fontFamily:mono,fontSize:10,color:C.dim,marginTop:2}}>6–12 slots · any pattern (repeats ok) · reorder.</div>
+          </button>
+        </div>
+        {anchorCfg.mode==="custom"
+          ? <>{activeSlots.map((p,idx)=><div key={p.id} className="card plate">
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  <button className="x" disabled={idx===0} style={{width:30,height:20,padding:0,fontSize:11,opacity:idx===0?0.25:1}} onClick={()=>moveSlot(p.id,-1)}>▲</button>
+                  <button className="x" disabled={idx===activeSlots.length-1} style={{width:30,height:20,padding:0,fontSize:11,opacity:idx===activeSlots.length-1?0.25:1}} onClick={()=>moveSlot(p.id,1)}>▼</button>
+                </div>
+                <div className="pat-eyebrow" style={{flex:1,margin:0}}>Slot {idx+1} · {p.full}</div>
+                {activeSlots.length>6&&<button className="btn-ghost red" style={{fontSize:9,padding:"3px 8px"}} onClick={()=>removeSlot(p.id)}>remove</button>}
+              </div>
+              <div style={{fontFamily:mono,fontSize:9,color:C.dim,marginBottom:4,letterSpacing:1}}>PATTERN</div>
+              <div className="pillwrap" style={{marginBottom:10}}>
+                {PATTERNS.map(t=><button key={t.id} className={`pill${p.type===t.id?" on":""}`} onClick={()=>setSlotType(p.id,t.id)}>{t.label}</button>)}
+              </div>
+              <div style={{fontFamily:mono,fontSize:9,color:C.dim,marginBottom:4,letterSpacing:1}}>EXERCISE</div>
+              <div className="pillwrap">
+                {(PATTERN_MAP[p.type]||[]).filter(n=>!banned.includes(n)).map(name=>(
+                  <button key={name} className={`pill${anchors[p.id]===name?" on":""}`} onClick={()=>selAnchor(p.id,name)}>{name}</button>))}
+              </div>
+            </div>)}
+            {activeSlots.length<12&&<button className="btn start-quick" style={{width:"100%",marginTop:2,marginBottom:4,height:44,fontSize:13,borderRadius:10}} onClick={addSlot}>+ Add slot · {activeSlots.length}/12</button>}
+            </>
+          : activeSlots.map(p=><div key={p.id} className="card plate">
+              <div className="pat-eyebrow">{p.full}</div>
+              <div className="pillwrap">
+                {(PATTERN_MAP[p.type]||[]).filter(n=>!banned.includes(n)).map(name=>(
+                  <button key={name} className={`pill${anchors[p.id]===name?" on":""}`} onClick={()=>selAnchor(p.id,name)}>{name}</button>))}
+              </div>
+            </div>)}
         {allSet&&<button className="btn btn-amber" style={{width:"100%",height:54,fontSize:16,marginTop:6}} onClick={()=>{setSetup(false);initSession();}}>Start session</button>}
         <button className="btn start-quick" style={{width:"100%",marginTop:8,height:48,fontSize:14,borderRadius:10}}
           onClick={()=>{setSetup(false);setSessionStart(Date.now());setSessionMode("quick");setQuickExs(genQuickSession());setAccs([]);}}>Quick bodyweight · maintenance</button>
