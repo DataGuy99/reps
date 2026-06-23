@@ -339,18 +339,25 @@ function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0,powerM
 // ── VOLUME ──
 function calcWeeklyVolume(anchorLog,accLog){
   const vol={};MUSCLES.forEach(m=>vol[m]=0);
-  const weekAgo=Date.now()-7*86400000;
+  // Current CALENDAR week (latest week with any logged set) — matches every other "this wk"
+  // card and is stable, unlike a Date.now() rolling window that drifts between re-renders.
+  const wks=[];
+  Object.values(anchorLog).forEach(es=>(es||[]).forEach(e=>wks.push(weekStart(e.date))));
+  (accLog||[]).forEach(e=>wks.push(weekStart(e.date)));
+  if(!wks.length)return vol;
+  const curWk=wks.sort().slice(-1)[0];
+  const isHard=s=>s.reps&&(s.rir==null||s.rir===""||+s.rir<=4);   // same definition for anchors AND accessories
   Object.entries(anchorLog).forEach(([name,entries])=>{
-    entries.filter(e=>new Date(e.date).getTime()>weekAgo).forEach(entry=>{
+    (entries||[]).filter(e=>weekStart(e.date)===curWk).forEach(entry=>{
       const ex=EXERCISES.find(x=>x.name===name);if(!ex)return;
-      const hardSets=entry.sets.filter(s=>s.reps&&(s.rir==null||s.rir===""||+s.rir<=4)).length;
+      const hardSets=entry.sets.filter(isHard).length;
       [...ex.p,...ex.s].forEach(({m,p})=>{vol[m]+=hardSets*(p/100);});
     });
   });
-  (accLog||[]).filter(e=>new Date(e.date).getTime()>weekAgo).forEach(entry=>{
+  (accLog||[]).filter(e=>weekStart(e.date)===curWk).forEach(entry=>{
     entry.exercises?.forEach(ex=>{
       const ref=EXERCISES.find(x=>x.name===ex.name);if(!ref)return;
-      const hardSets=ex.sets?.filter(s=>s.reps).length||0;
+      const hardSets=(ex.sets||[]).filter(isHard).length;
       [...ref.p,...ref.s].forEach(({m,p})=>{vol[m]+=hardSets*(p/100);});
     });
   });
@@ -898,7 +905,7 @@ export default function App(){
       <div style={{display:"flex",gap:8,alignItems:"center",margin:"0 0 10px",flexWrap:"wrap"}}>
         <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>POWER</span>
         <button className={`daytype${powerEnabled?" on":""}`} style={{flex:0,padding:"0 12px",height:32}} onClick={()=>setPowerEnabled(v=>{const n=!v;sv(SK.power,n);return n;})}>{powerEnabled?"ON":"OFF"}</button>
-        <span style={{fontFamily:mono,fontSize:10,color:C.steel}}>ballistic · ${POWER_REPS} fast reps / ${POWER_WINDOW}s window</span>
+        <span style={{fontFamily:mono,fontSize:10,color:C.steel}}>ballistic · {POWER_REPS} fast reps / {POWER_WINDOW}s window</span>
       </div>
 
       {!allSet||setup?<>
