@@ -102,7 +102,13 @@ composition verdict flags a fat-gain/recomp pattern.
 
 ---
 
-## 5. Done & deployed (latest commit `d7f00f7`)
+## 5. Done & deployed (latest commit `a1f918e`)
+Since `d7f00f7`: Trends-audit fixes — MEV hard-sets chart switched from a drifting Date.now()
+rolling-7d window to the calendar week (`da25137`, also fixed the stray `$` in the POWER label
+and unified the hard-set RIR<=4 rule for accessories); Sunday-start weeks to match owner's Sun–Sat
+cycle (`a1f918e`). STILL OPEN from the audit: the two tonnage labels are swapped — section
+"Weekly Tonnage" shows subtitle "Anchor volume load" (anchors only) while "Training Volume" shows
+"Weekly tonnage" (anchors+accessories); relabel pending owner go.
 **ROADMAP COMPLETE — all of §6 (6.1 power, 6.2 set-count, 6.3 custom anchors) shipped.**
 Session 3 (2025-06-23) also shipped, all CI-green: power timer on bodyweight rows
 (`7b135e9`); per-set editable power timer + expiry alarm (`274ecdb`); anchor-change Done
@@ -224,6 +230,46 @@ keep them research-grounded). Power is DONE (`e45d84a`). Remaining build order: 
 
 ---
 
+## 8. PROVISIONED — weekly pacing / encouragement bars (NOT YET BUILT, spec locked)
+Make the weekly bars (the MEV per-muscle "hard sets" chart + cardio + others) **pace-aware with
+encouraging color**, replacing today's static "<MEV = red" (which paints everything red early in
+the week even when nothing is wrong).
+
+**Intent:** answer "am I on track for the week?" — GREEN at/ahead of pace OR within a grace margin
+behind; AMBER when slipping past the margin; RED only when meaningfully behind. Bars carry it
+(color + a "where you should be by today" pace tick), minimal/no text. Encourage, don't punish.
+
+**Locked parameters:**
+- Targets: current built-in landmarks (3 sets, 6–12 reps, RIR defaults / MEV). Tweakable later.
+- Grace band: ~5–10% under target still GREEN (maintenance or a deliberate back-off when cooked are
+  both fine); ~15–20% behind = flag. TUNABLE — dial once felt in use.
+- Margin TIGHTENS toward end of week: 30% behind Sunday = nothing, 30% behind Friday = real. Early
+  slack forgiven, late slack flagged → pushes a strong finish.
+- Pace follows TRAINING cadence, not the calendar. A linear day/7 line would falsely flag rest days
+  (owner rests ~Wed + Sat) as "behind." Pace only advances on days volume normally lands.
+- Cadence is LEARNED from logged dates, PER MUSCLE (not declared, not per-day-global). Every
+  workout/cardio is dated; infer per-muscle which weekdays / how much volume usually lands and build
+  the expected pace curve from that. Owner does full-body x2/wk + cardio across 3 days now but wants
+  it per-muscle so a future upper/lower or body-part split needs zero rework.
+- Lookback window: DEFAULT 2 weeks (a 2-week change is probably a real regimen change; reverting =
+  2 weeks the old way). Toggleable 2/3/4 weeks in a NEW ADVANCED SETTINGS tab (first resident of it).
+  Shorter = snappier to flag/adopt a new pattern; longer = more forgiving.
+- Applies to MEV per-muscle bars AND cardio/MET bars (all weekly-bucketed as of `da25137`).
+
+**Cardio note:** cardio does NOT feed muscle MEV (different stimulus — a Z2 ride is not a bench set).
+Cardio gets its own pace bars (kcal / MET / per-modality). If cardio-muscle-load is ever added it
+feeds a SEPARATE conditioning/fatigue axis (the accessory engine's existing fatigue concept), never
+the growth-volume bars.
+
+**Foundation already in place:** calendar-week bucketing (`da25137`) + Sunday-start weeks (`a1f918e`)
+— pacing only makes sense inside a correctly-bounded week. The MET-hours card (weekly load vs a
+user-set goal, already blends cardio+lifting) is the closest existing pattern to start from.
+
+**Open at build time (implementation, not spec):** exact shape of the tightening grace curve; how
+"expected per-muscle volume by weekday" is derived from history (e.g. avg sets-per-weekday per muscle
+over the lookback); whether to add a single "week on track?" headline above the per-muscle bars.
+
+---
 ## 7. Notes / tunables
 - Tunable constants the owner may revisit: `RIR_PROGRESS`(3), `RESIST_MET`(5), MET goal default
   (40), recency window (2 sessions), muscle-seed median.
