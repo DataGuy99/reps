@@ -328,8 +328,9 @@ function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0,powerM
   const inc=top>=100?10:5;                                    // load step
   // (a) load far too light → jump load so the CURRENT reps land at target RIR
   if(wRir!=null&&wRir>=targetRIR+3){
-    const e=Math.round(top*(1+(wReps+wRir)/30));const nw=r5(e/(1+(wReps+targetRIR)/30));
-    if(nw>top)return{weight:nw,reps:wReps,sets:ls.length,note:`${wReps}r @ RIR ${wRir} — too light. Jump to ${nw}lb for ${wReps}r @ RIR ${targetRIR}.`,progressed:true,ramp};
+    const tr=Math.min(wReps,repRange[1]);                       // recalibrate into the range — never target reps above the ceiling
+    const e=Math.round(top*(1+(wReps+wRir)/30));const nw=r5(e/(1+(tr+targetRIR)/30));
+    if(nw>top)return{weight:nw,reps:tr,sets:ls.length,note:`${wReps}r @ RIR ${wRir} — too light. Jump to ${nw}lb for ${tr}r @ RIR ${targetRIR}.`,progressed:true,ramp};
   }
   // (b) room left in the range → add one rep at the same load
   if(wReps<repRange[1]&&(wRir==null||wRir>=1)){
@@ -788,7 +789,7 @@ export default function App(){
     const sets={};const isDeload=mesoState.phase==="deload";
     activeSlots.forEach(p=>{
       if(!anchors[p.id])return;
-      const prog=getProgression(anchors[p.id],anchorLog,[6,12],2,latestBW,powerEnabled);
+      const prog=getProgression(anchors[p.id],anchorLog,[6,12],2,latestBW,powerEnabled,!!eccBySlot[anchors[p.id]]);
       const n=setTarget(anchors[p.id],anchorLog,[6,10],2,mesoState.phase);
       const ex0=EXERCISES.find(x=>x.name===anchors[p.id])||{};
       let baseW=prog.weight;
@@ -816,7 +817,7 @@ export default function App(){
     const recentNames=[...new Set((accLog||[]).slice(-3).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
     const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
     setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol,anchorMuscleLoad(anchors,sets,activeSlots),recentNames,accRange,[],isDeload));
-  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW,accLog,powerEnabled]);
+  },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW,accLog,powerEnabled,eccBySlot]);
 
   useEffect(()=>{if(allSet&&!setup)initSession();},[allSet,setup,powerEnabled]);
 
@@ -1097,7 +1098,7 @@ export default function App(){
                   <div className="ex-name">{anchors[p.id]}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                  {!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).bw&&!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold&&<button className={`daytype${eccBySlot[anchors[p.id]]?" on":""}`} style={{flex:0,padding:"0 9px",height:26,fontSize:10}} onClick={()=>setEccBySlot(m=>({...m,[anchors[p.id]]:!m[anchors[p.id]]}))} title="Eccentric-assisted reps for this exercise">ECC {eccBySlot[anchors[p.id]]?"ON":"OFF"}</button>}
+                  {!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).bw&&!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold&&<button className={`daytype${eccBySlot[anchors[p.id]]?" on":""}`} style={{flex:0,padding:"0 9px",height:26,fontSize:10}} onClick={()=>{const nm=anchors[p.id];const on=!eccBySlot[nm];setEccBySlot(m=>({...m,[nm]:on}));const pr=getProgression(nm,anchorLog,[6,12],2,latestBW,powerEnabled,on);setAnchorSets(prev=>({...prev,[p.id]:(prev[p.id]||[]).map(s=>({...s,reps:pr.reps||s.reps,ecc:on&&pr.eccTarget?pr.eccTarget:""}))}));}} title="Eccentric-assisted reps for this exercise">ECC {eccBySlot[anchors[p.id]]?"ON":"OFF"}</button>}
                   {hasPain&&<div className="flag">RED PAIN</div>}
                 </div>
               </div>
