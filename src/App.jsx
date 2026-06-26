@@ -8,7 +8,7 @@ const SK={anchors:"wg2-anchors",anchorLog:"wg2-anchor-log",accLog:"wg2-acc-log",
   banned:"wg2-banned",prefs:"wg2-prefs",nutrition:"wg2-nutrition",body:"wg2-body",cardio:"wg2-cardio",
   daytargets:"wg2-daytargets",
   profile:"wg2-profile",
-  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix",power:"wg2-power",anchorcfg:"wg2-anchorcfg"};
+  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix",power:"wg2-power",anchorcfg:"wg2-anchorcfg",pacelookback:"wg2-pacelookback"};
 
 // ── DESIGN TOKENS ──
 const mono="'JetBrains Mono','Fira Code',monospace";
@@ -367,6 +367,32 @@ const VOL_LANDMARKS={chest:{mev:8,mav:16,mrv:22},back:{mev:8,mav:16,mrv:22},shou
   biceps:{mev:6,mav:14,mrv:20},triceps:{mev:6,mav:12,mrv:18},quads:{mev:6,mav:14,mrv:20},
   hamstrings:{mev:4,mav:10,mrv:16},glutes:{mev:4,mav:12,mrv:16},calves:{mev:6,mav:12,mrv:16},
   core:{mev:4,mav:10,mrv:16},traps:{mev:4,mav:10,mrv:16},forearms:{mev:2,mav:8,mrv:14}};
+const PACE_GRACE_FLOOR=0.10,PACE_GRACE_EARLY=0.25,PACE_GRACE_BAND=0.10;
+// Per-muscle weekly PACE. From the last `lookbackWeeks` COMPLETE weeks, learn which weekdays each
+// muscle's volume usually lands on, then return the cumulative fraction expected by `todayStr`.
+// Rest days are discovered (blank weekdays add nothing), so resting never reads as "behind".
+function cadencePace(anchorLog,accLog,lookbackWeeks,todayStr){
+  const curWk=weekStart(todayStr);
+  const cwd=new Date(curWk+"T00:00:00");cwd.setDate(cwd.getDate()-lookbackWeeks*7);
+  const cutoff=cwd.toISOString().slice(0,10);
+  const todayWd=new Date(String(todayStr).slice(0,10)+"T00:00:00").getDay();
+  const isHard=s=>s.reps&&(s.rir==null||s.rir===""||+s.rir<=4);
+  const perDay={};MUSCLES.forEach(m=>perDay[m]=[0,0,0,0,0,0,0]);
+  const add=(dateStr,contribs)=>{const wk=weekStart(dateStr);if(wk<cutoff||wk>=curWk)return;
+    const wd=new Date(String(dateStr).slice(0,10)+"T00:00:00").getDay();contribs.forEach(({m,n})=>{if(perDay[m])perDay[m][wd]+=n;});};
+  Object.entries(anchorLog).forEach(([name,entries])=>{const ex=EXERCISES.find(x=>x.name===name);if(!ex)return;
+    (entries||[]).forEach(e=>{const hs=e.sets.filter(isHard).length;if(!hs)return;add(e.date,[...ex.p,...ex.s].map(({m,p})=>({m,n:hs*(p/100)})));});});
+  (accLog||[]).forEach(e=>{(e.exercises||[]).forEach(x=>{const ref=EXERCISES.find(r=>r.name===x.name);if(!ref)return;
+    const hs=(x.sets||[]).filter(isHard).length;if(!hs)return;add(e.date,[...ref.p,...ref.s].map(({m,p})=>({m,n:hs*(p/100)})));});});
+  const global=[0,0,0,0,0,0,0];MUSCLES.forEach(m=>perDay[m].forEach((x,i)=>global[i]+=x));
+  const gTot=global.reduce((a,b)=>a+b,0);
+  const pace={};
+  MUSCLES.forEach(m=>{let dist=perDay[m],tot=dist.reduce((a,b)=>a+b,0);
+    if(tot<=0){dist=global;tot=gTot;}
+    if(tot<=0){pace[m]=(todayWd+1)/7;return;}
+    let cum=0;for(let d=0;d<=todayWd;d++)cum+=dist[d];pace[m]=cum/tot;});
+  return pace;
+}
 
 // ── MESOCYCLE ──
 function getMesoState(meso){
@@ -608,21 +634,31 @@ function SetRow({set,i,onUp,onRm,showPain,isHold,showEcc,showPwr,win=POWER_WINDO
   </div>);
 }
 
-function VolDash({weekVol}){
+function VolDash({weekVol,pace}){
   const main=["chest","back","shoulders","quads","hamstrings","glutes","biceps","triceps"];
   return(<div className="card" style={{padding:"12px 12px 8px"}}>
     <div style={{fontFamily:disp,fontWeight:700,fontSize:12,letterSpacing:2.5,color:C.steel,textTransform:"uppercase",marginBottom:9}}>Weekly volume · hard sets</div>
     {main.map(m=>{
       const v=Math.round(weekVol[m]||0);const lm=VOL_LANDMARKS[m]||{mev:6,mav:14,mrv:20};
+      const pf=pace?pace[m]:null;
       const pct=Math.min(v/lm.mrv*100,110);
-      const c=v<lm.mev?C.alarm:v<=lm.mav?C.go:v<=lm.mrv?C.warn:C.alarm;
-      const label=v<lm.mev?"<MEV":v<=lm.mav?"MEV+":v<=lm.mrv?"MAV+":">MRV";
+      let c,label;
+      if(v>lm.mrv){c=C.alarm;label=">MRV";}                       // junk volume
+      else if(v>=lm.mev){c=C.go;label=v<=lm.mav?"MEV+":"MAV+";}   // hit the weekly minimum
+      else if(pf==null){c=C.go;label="on pace";}                  // no cadence yet
+      else{const short=Math.max(0,pf*lm.mev-v)/lm.mev;            // how far behind today's expected
+        const gT=PACE_GRACE_FLOOR+(1-pf)*PACE_GRACE_EARLY;        // grace tightens as the week closes
+        if(short<=gT){c=C.go;label="on pace";}
+        else if(short<=gT+PACE_GRACE_BAND){c=C.warn;label="behind";}
+        else{c=C.alarm;label="behind";}}
+      const paceLeft=pf!=null?Math.min(pf*lm.mev/lm.mrv*100,100):null;
       return(<div key={m} className="vol-row">
         <div className="vol-name">{m.slice(0,6)}</div>
         <div className="vol-track">
           <div className="vol-tick" style={{left:`${lm.mev/lm.mrv*100}%`}}/>
           <div className="vol-tick" style={{left:`${lm.mav/lm.mrv*100}%`}}/>
           <div className="vol-fill" style={{width:`${pct}%`,background:c}}/>
+          {paceLeft!=null&&v<lm.mev&&<div title="on-pace marker" style={{position:"absolute",left:`${paceLeft}%`,top:-1,bottom:-1,width:2,background:C.bone,opacity:0.85,borderRadius:1}}/>}
         </div>
         <div className="vol-val" style={{color:c}}>{v} {label}</div>
       </div>);
@@ -674,6 +710,8 @@ export default function App(){
   const moveSlot=(id,dir)=>cfgSet(prev=>{const a=[...(prev.slots||[])];const i=a.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=a.length)return prev;[a[i],a[j]]=[a[j],a[i]];return{...prev,slots:a};});
   const[dayTargets,setDayTargets]=useState(()=>ld(SK.daytargets,Array.from({length:7},()=>({cal:2400,pro:190,carb:208,fat:90}))));
   const[logDate,setLogDate]=useState(()=>new Date().toISOString().slice(0,10));
+  const[paceLookback,setPaceLookback]=useState(()=>ld(SK.pacelookback,2));
+  const[advOpen,setAdvOpen]=useState(false);
   const[showTgtEd,setShowTgtEd]=useState(false);
   const[accCount]=useState(3);
   const[accSearch,setAccSearch]=useState("");
@@ -685,6 +723,7 @@ export default function App(){
   const mesoState=getMesoState(meso);
   const weekVol=useMemo(()=>calcWeeklyVolume(anchorLog,accLog),[anchorLog,accLog]);
   const today=new Date().toISOString().slice(0,10);
+  const pace=useMemo(()=>cadencePace(anchorLog,accLog,paceLookback,today),[anchorLog,accLog,paceLookback,today]);
   const dow=new Date(logDate+"T00:00:00").getDay();
   const targets=dayTargets[dow]||{cal:2400,pro:190,carb:208,fat:90};
   const dayNut=nutrition.filter(d=>d.date===logDate);
@@ -894,7 +933,7 @@ export default function App(){
         </div>
       </div>}
 
-      <VolDash weekVol={weekVol}/>
+      <VolDash weekVol={weekVol} pace={pace}/>
 
       <div style={{display:"flex",gap:8,alignItems:"center",margin:"0 0 10px",flexWrap:"wrap"}}>
         <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>ECCENTRIC</span>
@@ -1255,7 +1294,7 @@ export default function App(){
           <div className="bars">{tons.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/tmax)*100,8)}%`,background:i===tons.length-1?C.arc:`${C.arc}55`}}/>)}</div>
         </div>;})()}
 
-      <VolDash weekVol={weekVol}/>
+      <VolDash weekVol={weekVol} pace={pace}/>
 
       <div className="eyebrow"><span style={{color:C.amber}}>Training volume</span></div>
       {(()=>{const wk={};
@@ -1361,6 +1400,15 @@ export default function App(){
           </div>
           <div className="sub" style={{marginTop:4,color:C.dim,fontSize:11}}>dashed line = goal · last {rows.length} wk</div>
         </div>;})()}
+      <div style={{marginTop:20,marginBottom:6}}>
+        <button onClick={()=>setAdvOpen(o=>!o)} className="btn-ghost" style={{fontFamily:mono,fontSize:11,color:C.dim,letterSpacing:1}}>⚙ ADVANCED {advOpen?"▲":"▼"}</button>
+        {advOpen&&<div className="card" style={{padding:12,marginTop:8}}>
+          <div style={{fontFamily:mono,fontSize:10,color:C.dim,marginBottom:7,lineHeight:1.5}}>PACING LOOKBACK · weeks of history used to learn your training cadence. Shorter adapts faster to a new routine; longer is more forgiving.</div>
+          <div className="pillwrap">
+            {[2,3,4].map(n=><button key={n} className={`pill${paceLookback===n?" on":""}`} onClick={()=>{setPaceLookback(n);sv(SK.pacelookback,n);}}>{n} wk</button>)}
+          </div>
+        </div>}
+      </div>
     </>}
     </div>
   </div>);
