@@ -666,33 +666,55 @@ function SetRow({set,i,onUp,onRm,showPain,isHold,showEcc,showPwr,win=POWER_WINDO
   </div>);
 }
 
-function VolDash({weekVol,pace,trend}){
+// Per-muscle AVERAGE weekly hard sets over the last `weeks` COMPLETED weeks — your typical volume.
+// Stable: ignores the current partial week so it never reads low just because the week is young.
+// null when there are no completed weeks yet (brand-new user) -> bar falls back to this week.
+function avgWeeklyVolume(anchorLog,accLog,todayStr,weeks){
+  const curWk=weekStart(todayStr);
+  const isHard=s=>s.reps&&(s.rir==null||s.rir===""||+s.rir<=4);
+  const byWk={};
+  const add=(dateStr,name,sets)=>{
+    const ref=EXERCISES.find(x=>x.name===name);if(!ref)return;
+    const wk=weekStart(dateStr);if(wk>=curWk)return;
+    const hs=(sets||[]).filter(isHard).length;if(!hs)return;
+    byWk[wk]=byWk[wk]||{};
+    [...ref.p,...ref.s].forEach(({m,p})=>{byWk[wk][m]=(byWk[wk][m]||0)+hs*(p/100);});
+  };
+  Object.entries(anchorLog).forEach(([name,es])=>(es||[]).forEach(e=>add(e.date,name,e.sets)));
+  (accLog||[]).forEach(e=>(e.exercises||[]).forEach(x=>add(e.date,x.name,x.sets)));
+  const wks=Object.keys(byWk).sort().slice(-(weeks||4));
+  if(!wks.length)return null;
+  const avg={};MUSCLES.forEach(m=>avg[m]=0);
+  wks.forEach(w=>MUSCLES.forEach(m=>{avg[m]+=byWk[w][m]||0;}));
+  MUSCLES.forEach(m=>avg[m]=avg[m]/wks.length);
+  return avg;
+}
+function VolDash({weekVol,avgVol,trend}){
   const main=["chest","back","shoulders","quads","hamstrings","glutes","biceps","triceps"];
   return(<div className="card" style={{padding:"12px 12px 8px"}}>
-    <div style={{fontFamily:disp,fontWeight:700,fontSize:12,letterSpacing:2.5,color:C.steel,textTransform:"uppercase",marginBottom:9}}>Weekly volume · hard sets</div>
+    <div style={{fontFamily:disp,fontWeight:700,fontSize:12,letterSpacing:2.5,color:C.steel,textTransform:"uppercase",marginBottom:2}}>Weekly volume · hard sets</div>
+    <div style={{fontFamily:mono,fontSize:9.5,color:C.dim,marginBottom:9}}>typical / wk · ▏this wk · ↕ load vs last wk</div>
     {main.map(m=>{
-      const v=Math.round(weekVol[m]||0);const lm=VOL_LANDMARKS[m]||{mev:6,mav:14,mrv:20};
-      const pf=pace?pace[m]:null;
-      const pct=Math.min(v/lm.mrv*100,110);
+      const lm=VOL_LANDMARKS[m]||{mev:6,mav:14,mrv:20};
+      const cur=Math.round(weekVol[m]||0);                        // this week so far (the tick)
+      const avgRaw=avgVol&&avgVol[m]!=null?avgVol[m]:cur;         // your typical weekly volume (the bar)
+      const avg=Math.round(avgRaw*10)/10;
+      const pct=Math.min(avgRaw/lm.mrv*100,110);                  // bar = typical
+      const curPct=Math.min(cur/lm.mrv*100,100);                  // tick = this week
       let c,label;
-      if(v>lm.mrv){c=C.alarm;label=">MRV";}                       // junk volume
-      else if(v>=lm.mev){c=C.go;label=v<=lm.mav?"MEV+":"MAV+";}   // hit the weekly minimum
-      else if(pf==null){c=C.go;label="on pace";}                  // no cadence yet
-      else{const short=Math.max(0,pf*lm.mev-v)/lm.mev;            // how far behind today's expected
-        const gT=PACE_GRACE_FLOOR+(1-pf)*PACE_GRACE_EARLY;        // grace tightens as the week closes
-        if(short<=gT){c=C.go;label="on pace";}
-        else if(short<=gT+PACE_GRACE_BAND){c=C.warn;label="behind";}
-        else{c=C.alarm;label="behind";}}
-      const paceLeft=pf!=null?Math.min(pf*lm.mev/lm.mrv*100,100):null;
+      if(avgRaw>=lm.mrv){c=C.warn;label=">MRV";}                  // very high volume — amber, not alarm
+      else if(avgRaw>=lm.mev){c=C.go;label=avgRaw<=lm.mav?"MEV+":"MAV+";}  // at/above your weekly minimum
+      else if(avgRaw>=lm.mev*0.7){c=C.warn;label="building";}     // close to it — amber, not red
+      else{c=C.alarm;label="low";}                                // genuinely light on this muscle
       return(<div key={m} className="vol-row">
         <div className="vol-name">{m.slice(0,6)}</div>
         <div className="vol-track">
           <div className="vol-tick" style={{left:`${lm.mev/lm.mrv*100}%`}}/>
           <div className="vol-tick" style={{left:`${lm.mav/lm.mrv*100}%`}}/>
           <div className="vol-fill" style={{width:`${pct}%`,background:c}}/>
-          {paceLeft!=null&&v<lm.mev&&<div title="on-pace marker" style={{position:"absolute",left:`${paceLeft}%`,top:-1,bottom:-1,width:2,background:C.bone,opacity:0.85,borderRadius:1}}/>}
+          <div title="this week so far" style={{position:"absolute",left:`${curPct}%`,top:-2,bottom:-2,width:2,background:C.bone,opacity:0.9,borderRadius:1}}/>
         </div>
-        <div className="vol-val" style={{color:c}}>{v} {label}{trend&&trend[m]&&<span style={{marginLeft:5,fontSize:11,color:trend[m]==="up"?C.go:trend[m]==="down"?C.warn:C.dim}} title={`load ${trend[m]} vs last wk`}>{trend[m]==="up"?"↑":trend[m]==="down"?"↓":"→"}</span>}</div>
+        <div className="vol-val" style={{color:c}}>{avg} {label}{trend&&trend[m]&&<span style={{marginLeft:5,fontSize:11,color:trend[m]==="up"?C.go:trend[m]==="down"?C.warn:C.dim}} title={`load ${trend[m]} vs last wk`}>{trend[m]==="up"?"↑":trend[m]==="down"?"↓":"→"}</span>}</div>
       </div>);
     })}
   </div>);
@@ -755,7 +777,7 @@ export default function App(){
   const mesoState=getMesoState(meso);
   const weekVol=useMemo(()=>calcWeeklyVolume(anchorLog,accLog),[anchorLog,accLog]);
   const today=new Date().toISOString().slice(0,10);
-  const pace=useMemo(()=>cadencePace(anchorLog,accLog,paceLookback,today),[anchorLog,accLog,paceLookback,today]);
+  const avgVol=useMemo(()=>avgWeeklyVolume(anchorLog,accLog,today,paceLookback),[anchorLog,accLog,today,paceLookback]);
   const loadTrend=useMemo(()=>muscleLoadTrend(anchorLog,accLog,today),[anchorLog,accLog,today]);
   const dow=new Date(logDate+"T00:00:00").getDay();
   const targets=dayTargets[dow]||{cal:2400,pro:190,carb:208,fat:90};
@@ -966,7 +988,7 @@ export default function App(){
         </div>
       </div>}
 
-      <VolDash weekVol={weekVol} pace={pace} trend={loadTrend}/>
+      <VolDash weekVol={weekVol} avgVol={avgVol} trend={loadTrend}/>
 
       <div style={{display:"flex",gap:8,alignItems:"center",margin:"0 0 10px",flexWrap:"wrap"}}>
         <span style={{fontFamily:mono,fontSize:10,color:C.steel}}>eccentric-assisted BW progression</span>
@@ -1329,7 +1351,7 @@ export default function App(){
           <div className="bars">{tons.map((v,i)=><div key={i} className="bar" style={{height:`${Math.max((v/tmax)*100,8)}%`,background:i===tons.length-1?C.arc:`${C.arc}55`}}/>)}</div>
         </div>;})()}
 
-      <VolDash weekVol={weekVol} pace={pace} trend={loadTrend}/>
+      <VolDash weekVol={weekVol} avgVol={avgVol} trend={loadTrend}/>
 
       <div className="eyebrow"><span style={{color:C.amber}}>Training volume</span></div>
       {(()=>{const wk={};
@@ -1438,7 +1460,7 @@ export default function App(){
       <div style={{marginTop:20,marginBottom:6}}>
         <button onClick={()=>setAdvOpen(o=>!o)} className="btn-ghost" style={{fontFamily:mono,fontSize:11,color:C.dim,letterSpacing:1}}>⚙ ADVANCED {advOpen?"▲":"▼"}</button>
         {advOpen&&<div className="card" style={{padding:12,marginTop:8}}>
-          <div style={{fontFamily:mono,fontSize:10,color:C.dim,marginBottom:7,lineHeight:1.5}}>PACING LOOKBACK · weeks of history used to learn your training cadence. Shorter adapts faster to a new routine; longer is more forgiving.</div>
+          <div style={{fontFamily:mono,fontSize:10,color:C.dim,marginBottom:7,lineHeight:1.5}}>VOLUME AVERAGE · weeks of completed history averaged for the bar. Shorter tracks a new routine sooner; longer is steadier.</div>
           <div className="pillwrap">
             {[2,3,4].map(n=><button key={n} className={`pill${paceLookback===n?" on":""}`} onClick={()=>{setPaceLookback(n);sv(SK.pacelookback,n);}}>{n} wk</button>)}
           </div>
