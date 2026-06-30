@@ -884,12 +884,12 @@ export default function App(){
     setBW("");setBWa("");setBNa("");},[bW,bWa,bNa,today]);
   const delBody=useCallback(time=>{setBodyData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.body,n);return n;});},[]);
   // Cardio
-  const[cType,setCType]=useState("steady");const[cDur,setCDur]=useState("");const[cHR,setCHR]=useState("");const[cConf,setCConf]=useState("");const[cDist,setCDist]=useState("");const[cZones,setCZones]=useState(["","","","",""]);
+  const[cType,setCType]=useState("steady");const[cDur,setCDur]=useState("");const[cHR,setCHR]=useState("");const[cConf,setCConf]=useState("");const[cDist,setCDist]=useState("");const[cZones,setCZones]=useState(["","","","",""]);const[cDate,setCDate]=useState(today);
   const[profile,setProfile]=useState(()=>ld(SK.profile,{age:26,sex:"male"}));
   const setProf=(f,v)=>setProfile(p=>{const n={...p,[f]:f==="age"?(+v||0):v};sv(SK.profile,n);return n;});
-  const addCardio=useCallback(()=>{if(!cDur)return;const e={date:today,type:cType,duration:+cDur,avgHR:+cHR||null,config:cType==="hiit"?cConf:"",...(+cDist?{distance:+cDist}:{}),...(cZones.some(z=>+z>0)?{zones:cZones.map(z=>+z||0)}:{}),time:new Date().toISOString()};
+  const addCardio=useCallback(()=>{if(!cDur)return;const e={date:cDate||today,type:cType,duration:+cDur,avgHR:+cHR||null,config:cType==="hiit"?cConf:"",...(+cDist?{distance:+cDist}:{}),...(cZones.some(z=>+z>0)?{zones:cZones.map(z=>+z||0)}:{}),time:new Date().toISOString()};
     e.burn=cardioBurn(e,latestBW,profile.age,profile.sex);
-    setCardioData(p=>{const n=[...p,e].slice(-500);sv(SK.cardio,n);return n;});setCDur("");setCHR("");setCConf("");setCDist("");setCZones(["","","","",""]);},[cType,cDur,cHR,cConf,cDist,cZones,today,latestBW,profile.age,profile.sex]);
+    setCardioData(p=>{const n=[...p,e].slice(-500);sv(SK.cardio,n);return n;});setCDur("");setCHR("");setCConf("");setCDist("");setCZones(["","","","",""]);setCDate(today);},[cType,cDur,cHR,cConf,cDist,cZones,cDate,today,latestBW,profile.age,profile.sex]);
   const delCardio=useCallback(time=>{setCardioData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.cardio,n);return n;});},[]);
   const clearAllData=useCallback(()=>{if(!confirm("Delete ALL data? This cannot be undone."))return;
     Object.values(SK).forEach(k=>localStorage.removeItem(k));localStorage.removeItem(SK.accLog+"_prog");
@@ -1200,6 +1200,11 @@ export default function App(){
           <button className={`daytype${profile.sex==="male"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","male")}>M</button>
           <button className={`daytype${profile.sex==="female"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","female")}>F</button>
           {latestBW>0&&<span style={{fontFamily:mono,fontSize:11,color:C.steel,marginLeft:"auto"}}>{latestBW}lb</span>}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8}}>
+          <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>DATE</span>
+          <input className="in sm" type="date" value={cDate} max={today} onChange={e=>setCDate(e.target.value)} style={{flex:1,colorScheme:"dark"}}/>
+          {cDate!==today&&<span style={{fontFamily:mono,fontSize:10,color:C.amber,flexShrink:0}}>back-dated</span>}
         </div>
         <div className="grid3">
           <select className="in sm" value={cType} onChange={e=>setCType(e.target.value)} style={{width:96,flexShrink:0}}>
