@@ -664,6 +664,54 @@ function avgWeeklyVolume(anchorLog,accLog,todayStr,weeks){
   MUSCLES.forEach(m=>avg[m]=avg[m]/wks.length);
   return avg;
 }
+function ConfirmModal({open,title,msg,confirmLabel,danger,onConfirm,onCancel}){
+  if(!open)return null;
+  return(<div onClick={onCancel} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,.62)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.panel,border:`1px solid ${C.line}`,borderRadius:14,padding:20,maxWidth:360,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.55)"}}>
+      {title&&<div style={{fontFamily:disp,fontWeight:700,fontSize:15,letterSpacing:1,color:C.bone,marginBottom:8}}>{title}</div>}
+      <div style={{fontFamily:mono,fontSize:13,color:C.steel,lineHeight:1.5,marginBottom:18}}>{msg}</div>
+      <div style={{display:"flex",gap:10}}>
+        <button type="button" className="daytype" onClick={onCancel}>Cancel</button>
+        <button type="button" className="daytype" onClick={onConfirm} style={{background:danger?C.alarm:C.go,borderColor:"transparent",color:C.ink}}>{confirmLabel||"Confirm"}</button>
+      </div>
+    </div>
+  </div>);
+}
+function DatePicker({value,max,onChange,style}){
+  const[open,setOpen]=useState(false);
+  const todayStr=new Date().toISOString().slice(0,10);
+  const sel=value?new Date(value+"T00:00:00"):new Date(todayStr+"T00:00:00");
+  const[view,setView]=useState({y:sel.getFullYear(),m:sel.getMonth()});
+  const maxD=max?new Date(max+"T00:00:00"):null;
+  const fmt=value?new Date(value+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"Pick date";
+  const first=new Date(view.y,view.m,1);
+  const ndays=new Date(view.y,view.m+1,0).getDate();
+  const cells=[];for(let i=0;i<first.getDay();i++)cells.push(null);for(let d=1;d<=ndays;d++)cells.push(d);
+  const ds=d=>`${view.y}-${String(view.m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const openCal=()=>{if(!open)setView({y:sel.getFullYear(),m:sel.getMonth()});setOpen(o=>!o);};
+  const shift=n=>setView(v=>{const d=new Date(v.y,v.m+n,1);return{y:d.getFullYear(),m:d.getMonth()};});
+  return(<div style={{position:"relative",...style}}>
+    <button type="button" className="in sm" onClick={openCal} style={{width:"100%",textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <span style={{fontFamily:mono,fontSize:13}}>{fmt}</span><span style={{color:C.dim,fontSize:11}}>▾</span>
+    </button>
+    {open&&<><div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:150}}/>
+    <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:151,background:C.panel,border:`1px solid ${C.line}`,borderRadius:12,padding:10,width:258,boxShadow:"0 16px 48px rgba(0,0,0,.5)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+        <button type="button" className="x" onClick={()=>shift(-1)}>‹</button>
+        <span style={{fontFamily:disp,fontWeight:700,fontSize:13,color:C.bone}}>{first.toLocaleDateString("en-US",{month:"long",year:"numeric"})}</span>
+        <button type="button" className="x" onClick={()=>shift(1)}>›</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:3}}>
+        {["S","M","T","W","T","F","S"].map((d,i)=><div key={i} style={{textAlign:"center",fontFamily:mono,fontSize:10,color:C.dim}}>{d}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+        {cells.map((d,i)=>{if(!d)return<div key={i}/>;
+          const v=ds(d),dis=maxD&&new Date(v+"T00:00:00")>maxD,isSel=v===value,isTod=v===todayStr;
+          return<button type="button" key={i} disabled={dis} onClick={()=>{onChange(v);setOpen(false);}} style={{height:32,border:isTod&&!isSel?`1px solid ${C.steel}`:"1px solid transparent",borderRadius:7,background:isSel?C.go:"transparent",color:dis?C.line:isSel?C.ink:C.bone,fontFamily:mono,fontSize:13,cursor:dis?"default":"pointer",opacity:dis?.45:1,padding:0}}>{d}</button>;})}
+      </div>
+    </div></>}
+  </div>);
+}
 function VolDash({weekVol,avgVol,trend}){
   const main=["chest","back","shoulders","quads","hamstrings","glutes","biceps","triceps"];
   return(<div className="card" style={{padding:"12px 12px 8px"}}>
@@ -884,14 +932,14 @@ export default function App(){
     setBW("");setBWa("");setBNa("");},[bW,bWa,bNa,today]);
   const delBody=useCallback(time=>{setBodyData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.body,n);return n;});},[]);
   // Cardio
-  const[cType,setCType]=useState("steady");const[cDur,setCDur]=useState("");const[cHR,setCHR]=useState("");const[cConf,setCConf]=useState("");const[cDist,setCDist]=useState("");const[cZones,setCZones]=useState(["","","","",""]);const[cDate,setCDate]=useState(today);
+  const[cType,setCType]=useState("steady");const[cDur,setCDur]=useState("");const[cHR,setCHR]=useState("");const[cConf,setCConf]=useState("");const[cDist,setCDist]=useState("");const[cZones,setCZones]=useState(["","","","",""]);const[cDate,setCDate]=useState(today);const[confirmClear,setConfirmClear]=useState(false);
   const[profile,setProfile]=useState(()=>ld(SK.profile,{age:26,sex:"male"}));
   const setProf=(f,v)=>setProfile(p=>{const n={...p,[f]:f==="age"?(+v||0):v};sv(SK.profile,n);return n;});
   const addCardio=useCallback(()=>{if(!cDur)return;const e={date:cDate||today,type:cType,duration:+cDur,avgHR:+cHR||null,config:cType==="hiit"?cConf:"",...(+cDist?{distance:+cDist}:{}),...(cZones.some(z=>+z>0)?{zones:cZones.map(z=>+z||0)}:{}),time:new Date().toISOString()};
     e.burn=cardioBurn(e,latestBW,profile.age,profile.sex);
     setCardioData(p=>{const n=[...p,e].slice(-500);sv(SK.cardio,n);return n;});setCDur("");setCHR("");setCConf("");setCDist("");setCZones(["","","","",""]);setCDate(today);},[cType,cDur,cHR,cConf,cDist,cZones,cDate,today,latestBW,profile.age,profile.sex]);
   const delCardio=useCallback(time=>{setCardioData(p=>{const n=p.filter(e=>e.time!==time);sv(SK.cardio,n);return n;});},[]);
-  const clearAllData=useCallback(()=>{if(!confirm("Delete ALL data? This cannot be undone."))return;
+  const clearAllData=useCallback(()=>{setConfirmClear(false);
     Object.values(SK).forEach(k=>localStorage.removeItem(k));localStorage.removeItem(SK.accLog+"_prog");
     window.location.reload();},[]);
 
@@ -1136,7 +1184,7 @@ export default function App(){
         <button className="btn-ghost" style={{height:30,fontSize:11,padding:"0 10px"}} onClick={()=>setShowTgtEd(s=>!s)}>{showTgtEd?"Done":"Edit targets"}</button>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
-        <input className="in sm" type="date" max={today} value={logDate} onChange={e=>setLogDate(e.target.value||today)} style={{flex:1}}/>
+        <DatePicker value={logDate} max={today} onChange={d=>setLogDate(d||today)} style={{flex:1}}/>
         <span style={{fontFamily:mono,fontSize:13,color:logDate===today?C.amber:C.steel,minWidth:64}}>{logDate===today?"Today":DOW3[dow]}</span>
       </div>
       {showTgtEd&&<div className="card" style={{marginBottom:8}}>
@@ -1203,13 +1251,13 @@ export default function App(){
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8}}>
           <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>DATE</span>
-          <input className="in sm" type="date" value={cDate} max={today} onChange={e=>setCDate(e.target.value)} style={{flex:1,colorScheme:"dark"}}/>
+          <DatePicker value={cDate} max={today} onChange={d=>setCDate(d)} style={{flex:1}}/>
           {cDate!==today&&<span style={{fontFamily:mono,fontSize:10,color:C.amber,flexShrink:0}}>back-dated</span>}
         </div>
+        <div style={{display:"flex",gap:6,marginBottom:6}}>
+          {[["steady","Steady"],["hiit","HIIT"],["rowing","Rowing"]].map(([t,l])=><button type="button" key={t} className={`daytype${cType===t?" on":""}`} onClick={()=>setCType(t)}>{l}</button>)}
+        </div>
         <div className="grid3">
-          <select className="in sm" value={cType} onChange={e=>setCType(e.target.value)} style={{width:96,flexShrink:0}}>
-            <option value="steady">Steady</option><option value="hiit">HIIT</option><option value="rowing">Rowing</option>
-          </select>
           <input className="in sm" type="number" inputMode="numeric" placeholder="min" value={cDur} onChange={e=>setCDur(e.target.value)} style={{flex:1}}/>
           <input className="in sm" type="number" inputMode="numeric" placeholder="avg HR" value={cHR} onChange={e=>setCHR(e.target.value)} style={{flex:1}}/>
         </div>
@@ -1230,7 +1278,8 @@ export default function App(){
         </div>}
       </div>
 
-      <button className="btn-ghost red" style={{width:"100%",height:44,marginTop:18,borderRadius:9,fontFamily:disp,fontWeight:700,letterSpacing:2,fontSize:12,textTransform:"uppercase"}} onClick={clearAllData}>Clear all data</button>
+      <button className="btn-ghost red" style={{width:"100%",height:44,marginTop:18,borderRadius:9,fontFamily:disp,fontWeight:700,letterSpacing:2,fontSize:12,textTransform:"uppercase"}} onClick={()=>setConfirmClear(true)}>Clear all data</button>
+      <ConfirmModal open={confirmClear} title="Clear all data?" msg="This permanently deletes all logged workouts, cardio, body data, and settings. It cannot be undone." confirmLabel="Delete all" danger onConfirm={clearAllData} onCancel={()=>setConfirmClear(false)}/>
     </>}
 
     {/* ════ TRENDS ════ */}
