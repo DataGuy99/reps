@@ -377,32 +377,6 @@ const VOL_LANDMARKS={chest:{mev:8,mav:16,mrv:22},back:{mev:8,mav:16,mrv:22},shou
   biceps:{mev:6,mav:14,mrv:20},triceps:{mev:6,mav:12,mrv:18},quads:{mev:6,mav:14,mrv:20},
   hamstrings:{mev:4,mav:10,mrv:16},glutes:{mev:4,mav:12,mrv:16},calves:{mev:6,mav:12,mrv:16},
   core:{mev:4,mav:10,mrv:16},traps:{mev:4,mav:10,mrv:16},forearms:{mev:2,mav:8,mrv:14}};
-const PACE_GRACE_FLOOR=0.10,PACE_GRACE_EARLY=0.25,PACE_GRACE_BAND=0.10;
-// Per-muscle weekly PACE. From the last `lookbackWeeks` COMPLETE weeks, learn which weekdays each
-// muscle's volume usually lands on, then return the cumulative fraction expected by `todayStr`.
-// Rest days are discovered (blank weekdays add nothing), so resting never reads as "behind".
-function cadencePace(anchorLog,accLog,lookbackWeeks,todayStr){
-  const curWk=weekStart(todayStr);
-  const cwd=new Date(curWk+"T00:00:00");cwd.setDate(cwd.getDate()-lookbackWeeks*7);
-  const cutoff=cwd.toISOString().slice(0,10);
-  const todayWd=new Date(String(todayStr).slice(0,10)+"T00:00:00").getDay();
-  const isHard=s=>s.reps&&(s.rir==null||s.rir===""||+s.rir<=4);
-  const perDay={};MUSCLES.forEach(m=>perDay[m]=[0,0,0,0,0,0,0]);
-  const add=(dateStr,contribs)=>{const wk=weekStart(dateStr);if(wk<cutoff||wk>=curWk)return;
-    const wd=new Date(String(dateStr).slice(0,10)+"T00:00:00").getDay();contribs.forEach(({m,n})=>{if(perDay[m])perDay[m][wd]+=n;});};
-  Object.entries(anchorLog).forEach(([name,entries])=>{const ex=EXERCISES.find(x=>x.name===name);if(!ex)return;
-    (entries||[]).forEach(e=>{const hs=e.sets.filter(isHard).length;if(!hs)return;add(e.date,[...ex.p,...ex.s].map(({m,p})=>({m,n:hs*(p/100)})));});});
-  (accLog||[]).forEach(e=>{(e.exercises||[]).forEach(x=>{const ref=EXERCISES.find(r=>r.name===x.name);if(!ref)return;
-    const hs=(x.sets||[]).filter(isHard).length;if(!hs)return;add(e.date,[...ref.p,...ref.s].map(({m,p})=>({m,n:hs*(p/100)})));});});
-  const global=[0,0,0,0,0,0,0];MUSCLES.forEach(m=>perDay[m].forEach((x,i)=>global[i]+=x));
-  const gTot=global.reduce((a,b)=>a+b,0);
-  const pace={};
-  MUSCLES.forEach(m=>{let dist=perDay[m],tot=dist.reduce((a,b)=>a+b,0);
-    if(tot<=0){dist=global;tot=gTot;}
-    if(tot<=0){pace[m]=(todayWd+1)/7;return;}
-    let cum=0;for(let d=0;d<=todayWd;d++)cum+=dist[d];pace[m]=cum/tot;});
-  return pace;
-}
 // Per-muscle LOAD trend: tonnage (reps*weight*involvement) of the last COMPLETED week vs the
 // prior completed week. Stable — ignores the current partial week, so it won't fight the pace
 // color. Bodyweight work (no external load) contributes no tonnage. Returns up/flat/down/null.
