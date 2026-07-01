@@ -678,6 +678,19 @@ function avgWeeklyVolume(anchorLog,accLog,todayStr,weeks){
   MUSCLES.forEach(m=>avg[m]=avg[m]/wks.length);
   return avg;
 }
+function Dropdown({value,options,onChange,style}){
+  const[open,setOpen]=useState(false);
+  const cur=options.find(o=>o.v===value);
+  return(<div style={{position:"relative",...style}}>
+    <button type="button" className="in sm" onClick={()=>setOpen(o=>!o)} style={{width:"100%",textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}>
+      <span style={{fontFamily:mono,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{cur?cur.l:"\u2014"}</span><span style={{color:C.dim,fontSize:11,flexShrink:0}}>\u25be</span>
+    </button>
+    {open&&<><div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:150}}/>
+    <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:151,background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:4,boxShadow:"0 12px 40px rgba(0,0,0,.5)",minWidth:120}}>
+      {options.map(o=><button type="button" key={o.v} onClick={()=>{onChange(o.v);setOpen(false);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 10px",borderRadius:7,border:"none",background:o.v===value?C.raised:"transparent",color:o.v===value?C.bone:C.steel,fontFamily:mono,fontSize:13,cursor:"pointer"}}>{o.l}</button>)}
+    </div></>}
+  </div>);
+}
 function ConfirmModal({open,title,msg,confirmLabel,danger,onConfirm,onCancel}){
   if(!open)return null;
   return(<div onClick={onCancel} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,.62)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
@@ -1263,13 +1276,10 @@ export default function App(){
           <button className={`daytype${profile.sex==="female"?" on":""}`} style={{flex:0,padding:"0 14px",height:36}} onClick={()=>setProf("sex","female")}>F</button>
           {latestBW>0&&<span style={{fontFamily:mono,fontSize:11,color:C.steel,marginLeft:"auto"}}>{latestBW}lb</span>}
         </div>
-        <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8}}>
+        <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
           <span style={{fontFamily:mono,fontSize:11,color:C.dim,flexShrink:0}}>DATE</span>
           <DatePicker value={cDate} max={today} onChange={d=>setCDate(d)} style={{flex:1}}/>
-          {cDate!==today&&<span style={{fontFamily:mono,fontSize:10,color:C.amber,flexShrink:0}}>back-dated</span>}
-        </div>
-        <div style={{display:"flex",gap:6,marginBottom:6}}>
-          {[["steady","Steady"],["hiit","HIIT"],["rowing","Rowing"]].map(([t,l])=><button type="button" key={t} className={`daytype${cType===t?" on":""}`} onClick={()=>setCType(t)}>{l}</button>)}
+          <Dropdown value={cType} onChange={setCType} options={[{v:"steady",l:"Steady"},{v:"hiit",l:"HIIT"},{v:"rowing",l:"Rowing"}]} style={{width:104,flexShrink:0}}/>
         </div>
         <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:6}}>
           <span style={{fontFamily:mono,fontSize:10,color:C.dim,flexShrink:0}}>time</span>
@@ -1279,8 +1289,10 @@ export default function App(){
           <span style={{color:C.dim,fontFamily:mono}}>:</span>
           <input className="in sm" type="number" inputMode="numeric" placeholder="s" value={cS} onChange={e=>setCS(e.target.value)} style={{flex:1,minWidth:0}}/>
         </div>
-        <input className="in sm" type="number" inputMode="numeric" placeholder="avg HR" value={cHR} onChange={e=>setCHR(e.target.value)} style={{width:"100%",marginBottom:6}}/>
-        <input className="in sm" type="number" inputMode="decimal" placeholder="distance (m)" value={cDist} onChange={e=>setCDist(e.target.value)} style={{width:"100%",marginBottom:6}}/>
+        <div style={{display:"flex",gap:6,marginBottom:6}}>
+          <input className="in sm" type="number" inputMode="numeric" placeholder="avg HR" value={cHR} onChange={e=>setCHR(e.target.value)} style={{flex:1,minWidth:0}}/>
+          <input className="in sm" type="number" inputMode="decimal" placeholder="distance (m)" value={cDist} onChange={e=>setCDist(e.target.value)} style={{flex:1,minWidth:0}}/>
+        </div>
         <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:6}}>
           <span style={{fontFamily:mono,fontSize:10,color:C.dim,flexShrink:0}}>min in Z</span>
           {[0,1,2,3,4].map(i=><input key={i} className="in sm" type="number" inputMode="numeric" placeholder={`Z${i+1}`} value={cZones[i]} onChange={e=>setCZones(z=>z.map((v,j)=>j===i?e.target.value:v))} style={{flex:1,minWidth:0,textAlign:"center"}}/>)}
