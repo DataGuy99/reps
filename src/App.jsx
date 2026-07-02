@@ -969,6 +969,31 @@ export default function App(){
   const clearAllData=useCallback(()=>{setConfirmClear(false);
     Object.values(SK).forEach(k=>localStorage.removeItem(k));localStorage.removeItem(SK.accLog+"_prog");
     window.location.reload();},[]);
+  const[pendingImport,setPendingImport]=useState(null);
+  const importRef=useRef(null);
+  // Export EVERY wg2- key (all SK values + the derived _prog cache) as one JSON file.
+  const exportBackup=useCallback(()=>{
+    const data={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith("wg2-"))data[k]=localStorage.getItem(k);}
+    const blob=new Blob([JSON.stringify({app:"workout-gen",version:1,exportedAt:new Date().toISOString(),data},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    a.href=url;a.download=`workout-gen-backup-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  },[]);
+  const onImportFile=useCallback(e=>{
+    const f=e.target.files&&e.target.files[0];e.target.value="";if(!f)return;
+    const r=new FileReader();
+    r.onload=()=>{try{const p=JSON.parse(r.result);
+      if(p&&p.app==="workout-gen"&&p.data&&typeof p.data==="object")setPendingImport({data:p.data,count:Object.keys(p.data).length,exportedAt:p.exportedAt});
+      else setPendingImport({error:"Not a workout-gen backup file."});}
+      catch{setPendingImport({error:"Couldn't read that file — is it a valid backup?"});}};
+    r.readAsText(f);
+  },[]);
+  const doImport=useCallback(()=>{
+    const d=pendingImport&&pendingImport.data;if(!d)return;
+    for(let i=localStorage.length-1;i>=0;i--){const k=localStorage.key(i);if(k&&k.startsWith("wg2-"))localStorage.removeItem(k);}
+    Object.entries(d).forEach(([k,v])=>{if(typeof k==="string"&&k.startsWith("wg2-")&&typeof v==="string")localStorage.setItem(k,v);});
+    window.location.reload();
+  },[pendingImport]);
 
   const dateStr=new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 
@@ -1309,6 +1334,13 @@ export default function App(){
         </div>}
       </div>
 
+      <div style={{display:"flex",gap:8,marginTop:18}}>
+        <button className="btn-ghost" style={{flex:1,height:44,borderRadius:9,fontFamily:disp,fontWeight:700,letterSpacing:1.5,fontSize:11,textTransform:"uppercase"}} onClick={exportBackup}>Export backup</button>
+        <button className="btn-ghost" style={{flex:1,height:44,borderRadius:9,fontFamily:disp,fontWeight:700,letterSpacing:1.5,fontSize:11,textTransform:"uppercase"}} onClick={()=>importRef.current&&importRef.current.click()}>Import backup</button>
+      </div>
+      <input ref={importRef} type="file" accept=".json,application/json" onChange={onImportFile} style={{display:"none"}}/>
+      {pendingImport&&pendingImport.error&&<div style={{fontFamily:mono,fontSize:11,color:C.alarm,marginTop:8,textAlign:"center"}}>{pendingImport.error}</div>}
+      <ConfirmModal open={!!(pendingImport&&pendingImport.data)} title="Import backup?" msg={pendingImport&&pendingImport.data?`Restoring ${pendingImport.count} items${pendingImport.exportedAt?" from "+new Date(pendingImport.exportedAt).toLocaleDateString():""}. This replaces all current data on this device.`:""} confirmLabel="Import" onConfirm={doImport} onCancel={()=>setPendingImport(null)}/>
       <button className="btn-ghost red" style={{width:"100%",height:44,marginTop:18,borderRadius:9,fontFamily:disp,fontWeight:700,letterSpacing:2,fontSize:12,textTransform:"uppercase"}} onClick={()=>setConfirmClear(true)}>Clear all data</button>
       <ConfirmModal open={confirmClear} title="Clear all data?" msg="This permanently deletes all logged workouts, cardio, body data, and settings. It cannot be undone." confirmLabel="Delete all" danger onConfirm={clearAllData} onCancel={()=>setConfirmClear(false)}/>
     </>}
