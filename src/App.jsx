@@ -1,4 +1,4 @@
-import{useState,useEffect,useCallback,useMemo,useRef}from"react";
+import{useState,useEffect,useCallback,useMemo,useRef,Component}from"react";
 import{MUSCLES,EXERCISES}from"./exercises.js";
 
 // ── STORAGE ──
@@ -313,6 +313,7 @@ function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0,powerM
   if(powerMode&&!(exDef&&exDef.bw))return powerProg(name,log);   // loaded power routes first (handles first session internally)
   if(!h||!h.length)return{weight:"",reps:repRange[0],sets:3,note:`First session. Find weight for ${repRange[0]} reps @ RIR ${targetRIR}.`,isNew:true};
   const last=h[h.length-1];
+  if(!last||!Array.isArray(last.sets))return{weight:"",reps:repRange[0],sets:3,note:`First session. Find weight for ${repRange[0]} reps @ RIR ${targetRIR}.`,isNew:true};
   if(exDef&&exDef.bw)return bwProgression(exDef,last,repRange,targetRIR,bodyWeight,eccOn);
   const ls=last.sets.filter(s=>s.reps&&s.weight);
   if(!ls.length)return{weight:"",reps:repRange[0],sets:3,note:"No data last session.",isNew:true,ramp:null};
@@ -771,6 +772,28 @@ function VolDash({weekVol,avgVol,trend}){
 }
 
 // ── MAIN ──
+export class ErrorBoundary extends Component{
+  constructor(p){super(p);this.state={err:null};}
+  static getDerivedStateFromError(err){return{err:(err&&err.message)||String(err)||"Unknown error"};}
+  componentDidCatch(err,info){console.error("App crashed:",err,info);}
+  render(){
+    if(this.state.err==null)return this.props.children;
+    const doExport=()=>{try{const data={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith("wg2-"))data[k]=localStorage.getItem(k);}
+      const blob=new Blob([JSON.stringify({app:"workout-gen",version:1,exportedAt:new Date().toISOString(),data},null,2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`workout-gen-backup-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){console.error(e);}};
+    const doReset=()=>{try{for(let i=localStorage.length-1;i>=0;i--){const k=localStorage.key(i);if(k&&k.startsWith("wg2-"))localStorage.removeItem(k);}}catch(e){}window.location.reload();};
+    const btn={height:44,padding:"0 18px",borderRadius:9,background:"transparent",fontFamily:disp,fontWeight:700,letterSpacing:1.5,fontSize:11,textTransform:"uppercase",cursor:"pointer"};
+    return(<div style={{minHeight:"100vh",background:C.ink,color:C.bone,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:28,fontFamily:mono,gap:14}}>
+      <div style={{fontFamily:disp,fontWeight:700,fontSize:18,letterSpacing:1,color:C.alarm}}>Something broke</div>
+      <div style={{fontSize:13,color:C.steel,textAlign:"center",lineHeight:1.5,maxWidth:430}}>The app hit an error loading your data — your data is still saved. Export a backup first, then reset to recover. Screenshot the error below so it can be fixed.</div>
+      <div style={{fontSize:11,color:C.dim,textAlign:"center",wordBreak:"break-word",maxWidth:430,padding:"8px 12px",border:`1px solid ${C.line}`,borderRadius:8}}>{String(this.state.err)}</div>
+      <div style={{display:"flex",gap:10,marginTop:6}}>
+        <button onClick={doExport} style={{...btn,color:C.arc,border:`1px solid ${C.arc}`}}>Export backup</button>
+        <button onClick={doReset} style={{...btn,color:C.alarm,border:`1px solid ${C.alarm}`}}>Reset app</button>
+      </div>
+    </div>);
+  }
+}
 export default function App(){
   const[view,setView]=useState("lift");
   const[anchors,setAnchors]=useState(()=>ld(SK.anchors,{}));
