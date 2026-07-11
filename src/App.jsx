@@ -8,7 +8,7 @@ const SK={anchors:"wg2-anchors",anchorLog:"wg2-anchor-log",accLog:"wg2-acc-log",
   banned:"wg2-banned",prefs:"wg2-prefs",nutrition:"wg2-nutrition",body:"wg2-body",cardio:"wg2-cardio",
   daytargets:"wg2-daytargets",
   profile:"wg2-profile",
-  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix",power:"wg2-power",anchorcfg:"wg2-anchorcfg",pacelookback:"wg2-pacelookback",impl:"wg2-impl"};
+  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix",power:"wg2-power",anchorcfg:"wg2-anchorcfg",pacelookback:"wg2-pacelookback",impl:"wg2-impl",kcoef:"wg2-kcoef"};
 
 // ── DESIGN TOKENS ──
 const mono="'JetBrains Mono','Fira Code',monospace";
@@ -328,6 +328,103 @@ function powerProg(name,log){
   const top=Math.max(...ls.map(s=>+s.weight));const w=r5(top*0.6);
   return{weight:w,reps:POWER_REPS,sets:3,win:POWER_WINDOW,power:true,note:`Power start: ~${w}lb (60% of ${top}), ${POWER_REPS} fast reps in ${POWER_WINDOW}s.`};
 }
+// ── PATTERN STRENGTH ─────────────────────────────────────────────────────────
+// Progression is keyed on the exercise NAME, so swapping an anchor (bench ->
+// incline DB) hands getProgression an empty log, it calls the lift brand new, and
+// the pattern's e1RM restarts from nothing. You lose your place in that category.
+//
+// Strength belongs to the PATTERN, not the lift. Each pattern carries a level S in
+// its reference lift's pounds; every exercise maps on with a coefficient k:
+//     e1RM(lift) = k * S      =>      S = e1RM(lift) / k
+// Swapping anchors changes the lens, not the level. k is measured from YOUR logs
+// wherever two lifts overlap in time (accessories count), so this is mostly not a
+// guess. Where nothing overlaps, we bridge: the level is continuous across a swap,
+// so the first session on the new lift defines its own k.
+const PAT_REF={hpress:"Barbell Bench Press",vpress:"Barbell Overhead Press",hpull:"Barbell Rows",
+  vpull:"Pull-ups",squat:"Barbell Back Squat",hinge:"Conventional Deadlift"};
+// seeds only — used when a lift has never overlapped the reference and there's no
+// level to bridge from. Overwritten by measurement the moment there is any.
+const SEED_K={"Barbell Bench Press":1,"Incline Barbell Bench Press":.85,"Close-grip Barbell Bench":.9,
+  "Dumbbell Bench Press":.9,"Incline Dumbbell Press":.77,"Decline Dumbbell Press":.93,
+  "Dumbbell Floor Press":.84,"Dips":1.05,"Push-ups":.62,"Diamond Push-ups":.55,
+  "Barbell Overhead Press":1,"Barbell Push Press":1.2,"Dumbbell Arnold Press":.84,
+  "Landmine Press":.55,"Single-arm Landmine Press":.35,"Pike Push-ups":.7,
+  "Barbell Rows":1,"Pendlay Rows":.95,"Dumbbell Rows":.48,"Chest-supported Incline DB Rows":.84,
+  "Meadow Rows":.55,"Inverted Rows":.65,
+  "Pull-ups":1,"Chin-ups":1.05,"Wide-grip Pull-ups":.95,"Commando Pull-ups":.92,
+  "Barbell Back Squat":1,"Barbell Front Squat":.82,"Belt Squat":.85,"Landmine Squat":.6,
+  "Dumbbell Goblet Squat":.4,"Dumbbell Bulgarian Split Squat":.6,"Dumbbell Lunges":.6,
+  "Dumbbell Step-ups":.6,"Pistol Squats":.45,
+  "Conventional Deadlift":1,"Sumo Deadlift":1,"Barbell Romanian Deadlifts":.75,
+  "Landmine Romanian Deadlift":.45,"Dumbbell Romanian Deadlifts":.8,
+  "Single-leg DB Romanian Deadlift":.25,"Barbell Hip Thrusts":.9,"B-stance Hip Thrust":.6,
+  "Barbell Good Mornings":.55,"Nordic Curls":.5};
+const dayN=d=>Math.floor(new Date(d).getTime()/864e5);
+// Epley w/ RIR, blended across sets, weighted toward the near-failure ones — the
+// same estimator the progression already uses, just in TOTAL load so lifts compare.
+function sessE1RM(name,sess,bw,implOv){
+  const ls=(sess.sets||[]).filter(s=>+s.reps>0&&setLoad(name,s,bw,implOv)>0);
+  if(!ls.length)return null;
+  const rs=ls.filter(s=>s.rir!=null&&s.rir!=="");
+  if(rs.length){let num=0,den=0;
+    rs.forEach(s=>{const L=setLoad(name,s,bw,implOv),rir=+s.rir,rel=1/(1+rir);
+      num+=L*(1+((+s.reps)+rir)/30)*rel;den+=rel;});
+    return num/den;}
+  const t=ls.reduce((a,b)=>setLoad(name,b,bw,implOv)>setLoad(name,a,bw,implOv)?b:a);
+  return setLoad(name,t,bw,implOv)*(1+(+t.reps)/30);
+}
+// every e1RM datapoint we have for a pattern, anchors AND accessories, in time order
+function patObs(pid,anchorLog,accProg,bw,implOv){
+  const out=[];
+  (PATTERN_MAP[pid]||[]).forEach(nm=>{
+    [[anchorLog[nm],"anchor"],[accProg[nm],"acc"]].forEach(([hist,src])=>{
+      (hist||[]).forEach(sess=>{const e=sessE1RM(nm,sess,bw,implOv);
+        if(e)out.push({d:dayN(sess.date),nm,e,src});});
+    });
+  });
+  return out.sort((a,b)=>a.d-b.d);
+}
+// k measured from your own logs — only where the two lifts genuinely overlapped in
+// time. The reference is interpolated, never extrapolated: comparing a new lift to a
+// stale reference would fold weeks of progress into the ratio, which isn't a
+// measurement, it's a swap — and swaps are the bridge's job.
+function measuredK(obs,ref){
+  const rp=obs.filter(o=>o.nm===ref).sort((a,b)=>a.d-b.d);
+  if(rp.length<2)return {};
+  const at=d=>{if(d<rp[0].d||d>rp[rp.length-1].d)return null;
+    let p=null,n=null;rp.forEach(r=>{if(r.d<=d)p=r;if(r.d>=d&&!n)n=r;});
+    if(!p||!n)return null;if(p.d===n.d)return p.e;
+    return p.e+(n.e-p.e)*((d-p.d)/(n.d-p.d));};
+  const by={};
+  obs.filter(o=>o.nm!==ref).forEach(o=>{const r=at(o.d);
+    if(r>0)(by[o.nm]=by[o.nm]||[]).push(o.e/r);});
+  const out={};
+  Object.entries(by).forEach(([nm,rs])=>{rs.sort((a,b)=>a-b);
+    out[nm]={k:rs[Math.floor(rs.length/2)],src:"measured",n:rs.length};});
+  return out;
+}
+// current level of every pattern + the k that gets you there
+function patternState(anchorLog,accProg,bw,implOv,kOv){
+  const st={};
+  PATTERNS.forEach(p=>{
+    const ref=PAT_REF[p.id],obs=patObs(p.id,anchorLog,accProg,bw,implOv);
+    const K={[ref]:{k:1,src:"reference"},...measuredK(obs,ref),
+      ...Object.fromEntries(Object.entries(kOv||{}).filter(([nm])=>(PATTERN_MAP[p.id]||[]).includes(nm))
+        .map(([nm,k])=>[nm,{k:+k,src:"manual"}]))};
+    let lvl=null,last=null;
+    obs.forEach(o=>{
+      if(!K[o.nm]){
+        // never seen, nothing measured: bridge off the level we're already at
+        if(lvl>0&&last!=null&&(o.d-last)<=90)K[o.nm]={k:o.e/lvl,src:"bridged"};
+        else K[o.nm]={k:SEED_K[o.nm]||1,src:"seed"};
+      }
+      lvl=o.e/(K[o.nm].k||1);last=o.d;
+    });
+    st[p.id]={level:lvl,K,ref,n:obs.length,last};
+  });
+  return st;
+}
+
 function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0,powerMode=false,eccOn=false){
   const h=log[name];
   const exDef=EXERCISES.find(x=>x.name===name);
@@ -822,6 +919,7 @@ export class ErrorBoundary extends Component{
 export default function App(){
   const[view,setView]=useState("lift");
   const[implOv,setImplOv]=useState(()=>ld(SK.impl,{}));
+  const[kOv,setKOv]=useState(()=>ld(SK.kcoef,{}));
   const toggleImpl=(name)=>setImplOv(p=>{const cur=implOf(name,p);const nx={...p,[name]:cur===2?1:2};sv(SK.impl,nx);return nx;});
   const[anchors,setAnchors]=useState(()=>ld(SK.anchors,{}));
   const[anchorLog,setAnchorLog]=useState(()=>ld(SK.anchorLog,{}));
@@ -880,6 +978,7 @@ export default function App(){
   const today=new Date().toISOString().slice(0,10);
   const avgVol=useMemo(()=>avgWeeklyVolume(anchorLog,accLog,today,paceLookback),[anchorLog,accLog,today,paceLookback]);
   const loadTrend=useMemo(()=>muscleLoadTrend(anchorLog,accLog,today,myBW,implOv),[anchorLog,accLog,today,myBW,implOv]);
+  const patState=useMemo(()=>patternState(anchorLog,ld(SK.accLog+"_prog",{}),myBW,implOv,kOv),[anchorLog,accLog,myBW,implOv,kOv]);
   const dow=new Date(logDate+"T00:00:00").getDay();
   const targets=dayTargets[dow]||{cal:2400,pro:190,carb:208,fat:90};
   const dayNut=nutrition.filter(d=>d.date===logDate);
@@ -893,6 +992,22 @@ export default function App(){
       const n=setTarget(anchors[p.id],anchorLog,[6,10],2,mesoState.phase);
       const ex0=EXERCISES.find(x=>x.name===anchors[p.id])||{};
       let baseW=prog.weight;
+      // Swapped anchor with no history: you did not get weaker, you changed the lens.
+      // Carry the PATTERN's level across and express it in this lift's own units.
+      if((baseW===""||baseW==null)&&prog.isNew){
+        const ps=patState[p.id];
+        const kk=ps&&ps.K&&ps.K[anchors[p.id]];
+        const k=kk?kk.k:(SEED_K[anchors[p.id]]||null);
+        if(ps&&ps.level>0&&k>0){
+          const tgtE1=ps.level*k;                              // expected e1RM on THIS lift
+          const reps=prog.reps||6, rir=2;
+          let total=tgtE1/(1+(reps+rir)/30);                   // invert Epley
+          if(ex0.bw)total-=(+latestBW||0);                     // bw lifts: added weight only
+          const per=total/implOf(anchors[p.id],implOv);        // back to what you'd load per hand
+          const r=Math.round(per/5)*5;
+          if(r>0)baseW=r;
+        }
+      }
       if((baseW===""||baseW==null)&&!ex0.bw&&prog.isNew){const seed=muscleSeedWeight(((ex0.p&&ex0.p[0])||{}).m,{...ld(SK.accLog+"_prog",{}),...anchorLog},ex0.name,implOv);if(seed)baseW=seed;}
       const w=isDeload&&baseW?Math.round(+baseW*0.7):baseW;
       // ── LIVE: flat prescription (every set same weight) ──
@@ -1221,6 +1336,19 @@ export default function App(){
                 <div>
                   <div className="pat-eyebrow">{p.label}</div>
                   <div className="ex-name">{anchors[p.id]}</div>
+                  {(()=>{const ps=patState[p.id];if(!ps||!(ps.level>0))return null;
+                    const kk=(ps.K||{})[anchors[p.id]]||{};
+                    const tone=kk.src==="reference"||kk.src==="measured"||kk.src==="manual"?C.go
+                              :kk.src==="bridged"?C.arc:C.steel;
+                    return(<div style={{fontFamily:mono,fontSize:11,color:C.bone,marginTop:2}}>
+                      {Math.round(ps.level)} lb <span style={{opacity:.6}}>{ps.ref}-equiv</span>
+                      <span style={{color:tone,marginLeft:6}}>
+                        {kk.src==="reference"?"\u25cf direct"
+                        :kk.src==="measured"?`\u25cf measured \u00d7${(kk.k||1).toFixed(2)}`
+                        :kk.src==="manual"?`\u25cf yours \u00d7${(kk.k||1).toFixed(2)}`
+                        :kk.src==="bridged"?`\u25cb carried \u00d7${(kk.k||1).toFixed(2)}`
+                        :`\u25cb est \u00d7${(kk.k||1).toFixed(2)}`}
+                      </span></div>);})()}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                   {!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).bw&&!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold&&<button className={`daytype${eccBySlot[anchors[p.id]]?" on":""}`} style={{flex:0,padding:"0 9px",height:26,fontSize:10}} onClick={()=>{const nm=anchors[p.id];const on=!eccBySlot[nm];setEccBySlot(m=>({...m,[nm]:on}));const pr=getProgression(nm,anchorLog,[6,12],2,latestBW,powerEnabled,on);setAnchorSets(prev=>({...prev,[p.id]:(prev[p.id]||[]).map(s=>({...s,reps:pr.reps||s.reps,ecc:on&&pr.eccTarget?pr.eccTarget:""}))}));}} title="Eccentric-assisted reps for this exercise">ECC {eccBySlot[anchors[p.id]]?"ON":"OFF"}</button>}
