@@ -8,7 +8,7 @@ const SK={anchors:"wg2-anchors",anchorLog:"wg2-anchor-log",accLog:"wg2-acc-log",
   banned:"wg2-banned",prefs:"wg2-prefs",nutrition:"wg2-nutrition",body:"wg2-body",cardio:"wg2-cardio",
   daytargets:"wg2-daytargets",
   profile:"wg2-profile",
-  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix",power:"wg2-power",anchorcfg:"wg2-anchorcfg",pacelookback:"wg2-pacelookback"};
+  meso:"wg2-meso",history:"wg2-history",metgoal:"wg2-metgoal",eccentrix:"wg2-eccentrix",power:"wg2-power",anchorcfg:"wg2-anchorcfg",pacelookback:"wg2-pacelookback",impl:"wg2-impl"};
 
 // ── DESIGN TOKENS ──
 const mono="'JetBrains Mono','Fira Code',monospace";
@@ -113,6 +113,27 @@ input[type=number]{-moz-appearance:textfield}
 // ── SEMANTIC COLORS ──
 const PAIN_C=v=>v<=2?C.go:v<=5?C.warn:C.alarm;
 const RIR_C=v=>v<=1?C.alarm:v<=2?"#FF8A3D":v<=3?C.warn:C.go;
+
+// ── LOAD MODEL ────────────────────────────────────────────────────────────────
+// The weight you type is ALWAYS what's stamped on one implement — the dumbbell you
+// picked up. Total load = that number x how many implements are moving.
+//   DB RDL with the 90s   -> log 90, impl 2 -> 180 lb total
+//   one 90 held two-handed -> log 90, impl 1 ->  90 lb total
+// Prescriptions come back in the same units you type, so nothing needs converting
+// in your head. impl is per exercise and overridable (the x1/x2 chip on the set row).
+// Within one exercise every load scales together, so progression is unaffected; impl
+// only matters where loads are compared ACROSS exercises (tonnage, seeding, e1RM).
+const implOf=(name,overrides)=>{
+  if(overrides&&overrides[name]!=null)return +overrides[name]||1;
+  const ex=EXERCISES.find(x=>x.name===name);
+  return (ex&&+ex.impl)||1;
+};
+// total lb a set actually moved (bodyweight lifts add your bodyweight)
+const setLoad=(name,s,bodyWeight=0,overrides=null)=>{
+  const ex=EXERCISES.find(x=>x.name===name)||{};
+  const w=(+s.weight||0)*implOf(name,overrides);
+  return ex.bw?((+bodyWeight||0)+w):w;
+};
 
 const PATTERNS=[
   {id:"hpress",label:"H. Press",full:"Horizontal Press",muscles:["chest","triceps","shoulders"]},
@@ -237,7 +258,7 @@ function bwProgression(ex,last,repRange,targetRIR,bodyWeight,eccOn=false){
   const isHold=!!ex.hold;
   const ls=last.sets.filter(s=>eccOn?(s.reps||s.ecc):s.reps);
   if(!ls.length)return{weight:"",reps:repRange[0],sets:3,note:`First session. ${isHold?"Hold for time":`Hit ${repRange[0]} reps`} @ RIR ${targetRIR}.`,isNew:true,ramp:null};
-  const added=ls.map(s=>+s.weight||0);
+  const added=ls.map(s=>(+s.weight||0)*(+ex.impl||1));   // added weight, both hands if it's a pair
   const avgAdd=Math.round(added.reduce((a,b)=>a+b,0)/added.length);
   const load=(+bodyWeight||0)+avgAdd;
   const loadStr=load>0?`${load}lb`:"BW";
@@ -395,13 +416,13 @@ const VOL_LANDMARKS={chest:{mev:8,mav:16,mrv:22},back:{mev:8,mav:16,mrv:22},shou
 // Per-muscle LOAD trend: tonnage (reps*weight*involvement) of the last COMPLETED week vs the
 // prior completed week. Stable — ignores the current partial week, so it won't fight the pace
 // color. Bodyweight work (no external load) contributes no tonnage. Returns up/flat/down/null.
-function muscleLoadTrend(anchorLog,accLog,todayStr){
+function muscleLoadTrend(anchorLog,accLog,todayStr,bwLoad=0,implOv=null){
   const curWk=weekStart(todayStr);
   const byWk={};MUSCLES.forEach(m=>byWk[m]={});
   const add=(dateStr,name,sets)=>{
     const ref=EXERCISES.find(x=>x.name===name);if(!ref)return;
     const wk=weekStart(dateStr);if(wk>=curWk)return;
-    let ton=0;(sets||[]).forEach(s=>{if(s.reps&&s.weight)ton+=(+s.reps)*(+s.weight);});
+    let ton=0;(sets||[]).forEach(s=>{if(s.reps&&s.weight)ton+=(+s.reps)*setLoad(name,s,bwLoad,implOv);});
     if(!ton)return;
     [...ref.p,...ref.s].forEach(({m,p})=>{if(byWk[m])byWk[m][wk]=(byWk[m][wk]||0)+ton*(p/100);});
   };
@@ -438,27 +459,31 @@ function anchorMuscleLoad(anchors,sets,slots=PATTERNS){
 
 // Starting weight for a new accessory, seeded from recent loads on OTHER
 // accessories sharing the same primary muscle (median). null if none.
-function muscleSeedWeight(primaryMuscle,accProg){
+function muscleSeedWeight(primaryMuscle,accProg,targetName=null,implOv=null){
   if(!primaryMuscle)return null;
   const weights=[];
   Object.entries(accProg).forEach(([nm,hist])=>{
     const ex=EXERCISES.find(x=>x.name===nm);if(!ex||ex.bw)return;
     if((ex.p[0]||{}).m!==primaryMuscle)return;
     const last=hist&&hist[hist.length-1];if(!last||!last.sets)return;
-    const w=Math.max(...last.sets.map(s=>+s.weight||0));
+    // TOTAL load, or a pair of 40s would look lighter than a single 50
+    const w=Math.max(...last.sets.map(s=>setLoad(nm,s,0,implOv)));
     if(w>0)weights.push(w);
   });
   if(!weights.length)return null;
   weights.sort((a,b)=>a-b);
-  return weights[Math.floor(weights.length/2)];
+  const totalMed=weights[Math.floor(weights.length/2)];
+  // back into the target lift's own units — what you'd put in each hand
+  const per=totalMed/(targetName?implOf(targetName,implOv):1);
+  return Math.round(per/5)*5;
 }
 
 // Build one accessory object (prescription + seeded weight) for a given exercise.
 // Shared by the auto-selector (genAcc) and manual search-add so both behave identically.
-function buildAcc(ex,accProg,repRange,bwLoad,isDeload,locked=false){
+function buildAcc(ex,accProg,repRange,bwLoad,isDeload,locked=false,implOv=null){
   const sug=getProgression(ex.name,accProg,repRange,2,bwLoad);
   let sw=sug.weight||"";
-  if(sw===""&&!ex.bw&&sug.isNew){const seed=muscleSeedWeight((ex.p[0]||{}).m,accProg);if(seed)sw=seed;}
+  if(sw===""&&!ex.bw&&sug.isNew){const seed=muscleSeedWeight((ex.p[0]||{}).m,accProg,ex.name,implOv);if(seed)sw=seed;}
   if(isDeload&&sw)sw=Math.round(+sw*0.7);
   const nSets=isDeload?1:2;
   return{id:crypto.randomUUID(),name:ex.name,eq:ex.eq,cat:ex.cat,p:ex.p,s:ex.s,
@@ -500,7 +525,7 @@ function setTarget(name,log,repRange,targetRIR,phase){
   const t=(earnedSet(name,log,repRange,targetRIR)&&cur<ceil)?cur+1:cur;
   return Math.max(SET_BASE,Math.min(t,ceil));
 }
-function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRange=[10,15],exclude=[],isDeload=false){
+function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRange=[10,15],exclude=[],isDeload=false,implOv=null){
   const pool=ACC_POOL.filter(e=>!banned.includes(e.name));
   const cap=m=>VOL_LANDMARKS[m]?.mav||12;                 // per-session target ceiling
   const load={};MUSCLES.forEach(m=>load[m]=(anchorLoad&&anchorLoad[m])||0); // seed with anchor load
@@ -525,7 +550,7 @@ function genAcc(n,banned,prefs,fatigue,weekVol,anchorLoad,recentNames=[],repRang
     const tot=top.reduce((s,x)=>s+x.score,0);let r=Math.random()*tot,pick=top[0];
     for(const c of top){r-=c.score;if(r<=0){pick=c;break;}}
     pick.allM.forEach(({m,p:pct})=>{load[m]=(load[m]||0)+ACC_SETS*(pct/100);}); // add this pick's load
-    sel.push(buildAcc(pick.ex,accProg,repRange,bwLoad,isDeload,false));
+    sel.push(buildAcc(pick.ex,accProg,repRange,bwLoad,isDeload,false,implOv));
     used.add(pick.ex.name);
   }
   return sel;
@@ -590,7 +615,7 @@ const Stars=({value,onChange,size=18})=>(<div style={{display:"flex",gap:4}}>
   {[1,2,3].map(s=><span key={s} onClick={e=>{e.stopPropagation();onChange(value===s?0:s);}}
     style={{cursor:"pointer",fontSize:size,color:s<=value?C.amber:C.line,userSelect:"none",lineHeight:1}}>★</span>)}</div>);
 
-function SetRow({set,i,onUp,onRm,showPain,isHold,showEcc,showPwr,win=POWER_WINDOW}){
+function SetRow({set,i,onUp,onRm,showPain,isHold,showEcc,showPwr,win=POWER_WINDOW,impl=1,onImpl=null}){
   const rc=set.rir!=null&&set.rir!==""?RIR_C(+set.rir):C.line;
   const pc=set.pain!=null&&set.pain!==""?PAIN_C(+set.pain):C.line;
   const[running,setRunning]=useState(false);
@@ -796,6 +821,8 @@ export class ErrorBoundary extends Component{
 }
 export default function App(){
   const[view,setView]=useState("lift");
+  const[implOv,setImplOv]=useState(()=>ld(SK.impl,{}));
+  const toggleImpl=(name)=>setImplOv(p=>{const cur=implOf(name,p);const nx={...p,[name]:cur===2?1:2};sv(SK.impl,nx);return nx;});
   const[anchors,setAnchors]=useState(()=>ld(SK.anchors,{}));
   const[anchorLog,setAnchorLog]=useState(()=>ld(SK.anchorLog,{}));
   const[accLog,setAccLog]=useState(()=>ld(SK.accLog,[]));
@@ -806,6 +833,7 @@ export default function App(){
   const[fatigue,setFatigue]=useState(()=>{const f={};MUSCLES.forEach(m=>f[m]=0);return ld(SK.fatigue,f)});
   const[nutrition,setNutrition]=useState(()=>ld(SK.nutrition,[]));
   const[bodyData,setBodyData]=useState(()=>ld(SK.body,[]));
+  const myBW=useMemo(()=>(bodyData.slice().reverse().find(e=>e.weight)||{}).weight||0,[bodyData]);
   const latestBW=useMemo(()=>{const e=[...bodyData].reverse().find(x=>x.weight);return e?+e.weight:0;},[bodyData]);
   const[cardioData,setCardioData]=useState(()=>ld(SK.cardio,[]));
   const[meso,setMeso]=useState(()=>ld(SK.meso,{startDate:null,length:5}));
@@ -851,7 +879,7 @@ export default function App(){
   const weekVol=useMemo(()=>calcWeeklyVolume(anchorLog,accLog),[anchorLog,accLog]);
   const today=new Date().toISOString().slice(0,10);
   const avgVol=useMemo(()=>avgWeeklyVolume(anchorLog,accLog,today,paceLookback),[anchorLog,accLog,today,paceLookback]);
-  const loadTrend=useMemo(()=>muscleLoadTrend(anchorLog,accLog,today),[anchorLog,accLog,today]);
+  const loadTrend=useMemo(()=>muscleLoadTrend(anchorLog,accLog,today,myBW,implOv),[anchorLog,accLog,today,myBW,implOv]);
   const dow=new Date(logDate+"T00:00:00").getDay();
   const targets=dayTargets[dow]||{cal:2400,pro:190,carb:208,fat:90};
   const dayNut=nutrition.filter(d=>d.date===logDate);
@@ -865,7 +893,7 @@ export default function App(){
       const n=setTarget(anchors[p.id],anchorLog,[6,10],2,mesoState.phase);
       const ex0=EXERCISES.find(x=>x.name===anchors[p.id])||{};
       let baseW=prog.weight;
-      if((baseW===""||baseW==null)&&!ex0.bw&&prog.isNew){const seed=muscleSeedWeight(((ex0.p&&ex0.p[0])||{}).m,{...ld(SK.accLog+"_prog",{}),...anchorLog});if(seed)baseW=seed;}
+      if((baseW===""||baseW==null)&&!ex0.bw&&prog.isNew){const seed=muscleSeedWeight(((ex0.p&&ex0.p[0])||{}).m,{...ld(SK.accLog+"_prog",{}),...anchorLog},ex0.name,implOv);if(seed)baseW=seed;}
       const w=isDeload&&baseW?Math.round(+baseW*0.7):baseW;
       // ── LIVE: flat prescription (every set same weight) ──
       sets[p.id]=Array.from({length:n},()=>({reps:prog.reps||"",weight:w||"",rir:"",pain:"",...(prog.eccTarget?{ecc:prog.eccTarget}:{}),...(prog.power?{pwr:1}:{})}));
@@ -888,7 +916,7 @@ export default function App(){
     setAnchorSets(sets);
     const recentNames=[...new Set((accLog||[]).slice(-3).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
     const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
-    setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol,anchorMuscleLoad(anchors,sets,activeSlots),recentNames,accRange,[],isDeload));
+    setAccs(genAcc(accCount,banned,prefs,fatigue,weekVol,anchorMuscleLoad(anchors,sets,activeSlots),recentNames,accRange,[],isDeload,implOv));
   },[anchors,anchorLog,accCount,banned,prefs,fatigue,weekVol,mesoState.phase,latestBW,accLog,powerEnabled,eccBySlot]);
 
   useEffect(()=>{if(allSet&&!setup)initSession();},[allSet,setup,powerEnabled]);
@@ -906,7 +934,7 @@ export default function App(){
     locked.forEach(a=>[...a.p,...a.s].forEach(({m,p:pct})=>{seed[m]=(seed[m]||0)+(a.sets.length)*(pct/100);}));
     const recentNames=[...new Set((accLog||[]).slice(-3).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
     const accRange=[[8,12],[12,15],[15,20]][((accLog&&accLog.length)||0)%3];
-    const newAccs=genAcc(accCount-locked.length,banned,prefs,fatigue,weekVol,seed,recentNames,accRange,locked.map(a=>a.name),isDeload);setAccs([...locked,...newAccs]);},[accs,accCount,banned,prefs,fatigue,weekVol,anchors,anchorSets,accLog,mesoState.phase]);
+    const newAccs=genAcc(accCount-locked.length,banned,prefs,fatigue,weekVol,seed,recentNames,accRange,locked.map(a=>a.name),isDeload,implOv);setAccs([...locked,...newAccs]);},[accs,accCount,banned,prefs,fatigue,weekVol,anchors,anchorSets,accLog,mesoState.phase,implOv]);
   const addAccByName=useCallback((name)=>{
     const ex=EXERCISES.find(x=>x.name===name);if(!ex)return;
     const isDeload=mesoState.phase==="deload";
@@ -915,11 +943,11 @@ export default function App(){
     setAccs(prev=>{
       const locked=prev.filter(a=>a.locked);
       if(locked.some(a=>a.name===name))return prev;
-      const newLocked=[...locked,buildAcc(ex,accProg,accRange,latestBW,isDeload,true)];
+      const newLocked=[...locked,buildAcc(ex,accProg,accRange,latestBW,isDeload,true,implOv)];
       const seed=anchorMuscleLoad(anchors,anchorSets,activeSlots);
       newLocked.forEach(a=>[...a.p,...a.s].forEach(({m,p:pct})=>{seed[m]=(seed[m]||0)+(a.sets.length)*(pct/100);}));
       const recentNames=[...new Set((accLog||[]).slice(-3).flatMap(e=>(e.exercises||[]).map(x=>x.name)))];
-      const fill=genAcc(Math.max(0,accCount-newLocked.length),banned,prefs,fatigue,weekVol,seed,recentNames,accRange,newLocked.map(a=>a.name),isDeload);
+      const fill=genAcc(Math.max(0,accCount-newLocked.length),banned,prefs,fatigue,weekVol,seed,recentNames,accRange,newLocked.map(a=>a.name),isDeload,implOv);
       return[...newLocked,...fill];
     });
     setAccSearch("");
@@ -1204,7 +1232,7 @@ export default function App(){
                 {addedSet&&<span className="chip" style={{color:C.go,background:`${C.go}1c`,border:`1px solid ${C.go}44`}}>+1 SET → {tgtN}</span>}
                 <p>{prog.note}{prog.weight?<span className="tgt"> → {prog.reps}r × {prog.weight}lb</span>:null}</p>
               </div>
-              {sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={p.id==="squat"||p.id==="hinge"} isHold={!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return !!e.bw&&!e.hold&&!!eccBySlot[anchors[p.id]];})()} showPwr={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return powerEnabled&&!e.hold;})()} win={prog.win||POWER_WINDOW}
+              {sets.map((s,i)=><SetRow key={i} set={s} i={i} impl={implOf(anchors[p.id],implOv)} onImpl={()=>toggleImpl(anchors[p.id])} showPain={p.id==="squat"||p.id==="hinge"} isHold={!!(EXERCISES.find(x=>x.name===anchors[p.id])||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return !!e.bw&&!e.hold&&!!eccBySlot[anchors[p.id]];})()} showPwr={(()=>{const e=EXERCISES.find(x=>x.name===anchors[p.id])||{};return powerEnabled&&!e.hold;})()} win={prog.win||POWER_WINDOW}
                 onUp={(idx,f,v)=>updAS(p.id,idx,f,v)} onRm={idx=>rmAS(p.id,idx)}/>)}
               <button className="addset" onClick={()=>addAS(p.id)}>+ set</button>
             </div>);
@@ -1236,7 +1264,7 @@ export default function App(){
               </div>
             </div>
             <div style={{marginTop:4}}>
-              {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} showPain={false} isHold={!!(EXERCISES.find(x=>x.name===a.name)||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===a.name)||{};return !!e.bw&&!e.hold&&!!eccBySlot[a.name];})()} showPwr={(()=>{const e=EXERCISES.find(x=>x.name===a.name)||{};return powerEnabled&&!e.hold;})()}
+              {a.sets.map((s,i)=><SetRow key={i} set={s} i={i} impl={implOf(a.name,implOv)} onImpl={()=>toggleImpl(a.name)} showPain={false} isHold={!!(EXERCISES.find(x=>x.name===a.name)||{}).hold} showEcc={(()=>{const e=EXERCISES.find(x=>x.name===a.name)||{};return !!e.bw&&!e.hold&&!!eccBySlot[a.name];})()} showPwr={(()=>{const e=EXERCISES.find(x=>x.name===a.name)||{};return powerEnabled&&!e.hold;})()}
                 onUp={(idx,f,v)=>updAcc(a.id,idx,f,v)} onRm={idx=>rmAcc(a.id,idx)}/>)}
             </div>
             <button className="addset" onClick={()=>addAccSet(a.id)}>+ set</button>
