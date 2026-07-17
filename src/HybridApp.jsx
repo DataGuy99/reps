@@ -461,11 +461,22 @@ function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0,powerM
   const wr=wsets.map(s=>s.rir!=null&&s.rir!==""?+s.rir:null).filter(r=>r!=null);
   const wRir=wr.length?Math.min(...wr):null;                 // hardest effort at that load (null = no RIR)
   const inc=top>=100?10:5;                                    // load step
-  // (a) load far too light → jump load so the CURRENT reps land at target RIR
+  // (a) load far too light (high RIR) → zero in on the load that actually challenges the
+  // user, but SAFELY — converge over sessions, never one injury-risk leap. Two guardrails
+  // (2026-07-17, per "high RIR should best challenge without chance of injury"):
+  //   1. Clamp the RIR fed into the e1RM estimate. A logged RIR well above ~8 isn't a real
+  //      reps-in-reserve (you can't have 20 left in the tank on a working set) — left raw it
+  //      inflates the estimated 1RM and the target weight balloons dangerously.
+  //   2. Cap the per-session load increase (~15%). If the true target is higher, it steps
+  //      again next session once the user re-logs it as still easy — safe convergence.
   if(wRir!=null&&wRir>=targetRIR+3){
     const tr=Math.min(wReps,repRange[1]);                       // recalibrate into the range — never target reps above the ceiling
-    const e=Math.round(top*(1+(wReps+wRir)/30));const nw=r5(e/(1+(tr+targetRIR)/30));
-    if(nw>top)return{weight:nw,reps:tr,sets:ls.length,note:`${wReps}r @ RIR ${wRir} — too light. Jump to ${nw}lb for ${tr}r @ RIR ${targetRIR}.`,progressed:true,ramp};
+    const effRir=Math.min(wRir,8);                              // guardrail 1: cap the RIR used in the estimate
+    const e=Math.round(top*(1+(wReps+effRir)/30));
+    const cap=r5(top*1.15);                                     // guardrail 2: per-session load ceiling
+    let nw=r5(e/(1+(tr+targetRIR)/30));
+    const capped=nw>cap; if(capped)nw=cap;
+    if(nw>top)return{weight:nw,reps:tr,sets:ls.length,note:`${wReps}r @ RIR ${wRir} — too light. Step to ${nw}lb for ${tr}r toward RIR ${targetRIR}${capped?" (safe step; keeps climbing if still easy)":""}.`,progressed:true,ramp};
   }
   // (b) room left in the range → add one rep at the same load
   if(wReps<repRange[1]&&(wRir==null||wRir>=1)){
