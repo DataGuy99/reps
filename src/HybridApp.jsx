@@ -1987,13 +1987,13 @@ export default function App(){
             to their own row. `note` also restores a field the old app had that got
             dropped when this screen was rebuilt. */}
         <div style={{display:"flex",gap:6,marginTop:14,marginBottom:8}}>
-          <input type="number" inputMode="numeric" value={nCal} onChange={e=>setNCal(e.target.value)} placeholder="kcal" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
-          <input type="number" inputMode="numeric" value={nPro} onChange={e=>setNPro(e.target.value)} placeholder="pro" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
-          <input type="number" inputMode="numeric" value={nCarb} onChange={e=>setNCarb(e.target.value)} placeholder="carb" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
-          <input type="number" inputMode="numeric" value={nFat} onChange={e=>setNFat(e.target.value)} placeholder="fat" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
+          <input type="number" inputMode="numeric" value={nCal} onChange={e=>setNCal(e.target.value)} placeholder="kcal" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,color:V.ink,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
+          <input type="number" inputMode="numeric" value={nPro} onChange={e=>setNPro(e.target.value)} placeholder="pro" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,color:V.ink,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
+          <input type="number" inputMode="numeric" value={nCarb} onChange={e=>setNCarb(e.target.value)} placeholder="carb" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,color:V.ink,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
+          <input type="number" inputMode="numeric" value={nFat} onChange={e=>setNFat(e.target.value)} placeholder="fat" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,color:V.ink,padding:"7px 6px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
         </div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
-          <input value={nNote} onChange={e=>setNNote(e.target.value)} placeholder="note (optional)" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
+          <input value={nNote} onChange={e=>setNNote(e.target.value)} placeholder="note (optional)" style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:10,background:V.field,color:V.ink,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>
           <span onClick={addNut} style={{flexShrink:0,width:64,background:V.accent,color:V.accentink,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,cursor:"pointer"}}>Add</span>
         </div>
         {dayNutList.map(e=><div key={e.time} style={{padding:"7px 0",borderTop:`1px solid ${V.line}`,fontSize:12,color:V.ink2}}>
@@ -2104,7 +2104,7 @@ export default function App(){
         <div style={{display:"flex",gap:6}}>
           {[["cal","cal"],["pro","pro"],["carb","carb"],["fat","fat"]].map(([f,ph])=>
             <input key={f} type="number" inputMode="numeric" value={dayTargets[i]?.[f]??""} onChange={e=>setDT(i,f,e.target.value)} placeholder={ph}
-              style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:9,background:V.field,padding:"6px 4px",fontSize:12,textAlign:"center",outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>)}
+              style={{flex:1,minWidth:0,border:`1px solid ${V.border}`,borderRadius:9,background:V.field,color:V.ink,padding:"6px 4px",fontSize:12,textAlign:"center",outline:"none",fontFamily:sans,boxSizing:"border-box"}}/>)}
         </div>
       </div>)}
     </Card>
