@@ -1,0 +1,5 @@
+node_modules
+dist
+.DS_Store
+# never commit personal training data used for local seeding
+public/seed-backup.json
