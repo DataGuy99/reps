@@ -893,6 +893,19 @@ function VolDash({weekVol,avgVol,trend}){
   </div>);
 }
 
+// ── HYBRID-BUILD EXPORTS ──
+// Added 2026-07-15, additive only (no line above this moved or changed) so the
+// v5 hybrid UI (repos/workout-gen, hybrid-ui branch) can import the exact same
+// calculation logic and storage layer this live app uses, instead of duplicating
+// it — avoids any drift between what the two UIs compute from the same wg2- data.
+export{SK,ld,sv,PATTERNS,PATTERN_MAP,ALL_PAT_EX,ACC_POOL,ACC_PER_CAT,implOf,setLoad,
+  weekStart,slope,bodyTrend,cardioExtra,pearson,DOW3,keytelCpm,fmtDur,ZONE_MET,cardioBurn,
+  RIR_PROGRESS,RESIST_MET,CARDIO_MET,POWER_WINDOW,POWER_REPS,POWER_PCT,POWER_INC,
+  bwProgression,powerProg,getProgression,PAT_REF,SEED_K,dayN,sessE1RM,patObs,measuredK,patternState,
+  calcWeeklyVolume,VOL_LANDMARKS,muscleLoadTrend,avgWeeklyVolume,getMesoState,
+  anchorMuscleLoad,muscleSeedWeight,buildAcc,SET_BASE,SET_CAP,setCeiling,lastSetCount,earnedSet,setTarget,genAcc,
+  QUICK_POOLS,genQuickSession,PAIN_C,RIR_C};
+
 // ── MAIN ──
 export class ErrorBoundary extends Component{
   constructor(p){super(p);this.state={err:null};}
