@@ -953,6 +953,16 @@ export class ErrorBoundary extends Component{
 // survives re-renders instead of remounting every tick. Port the isometric-hold and
 // ballistic-power timers the old SetRow had — features that were missing from the new
 // session logger. Light-themed via the V/sans props the caller passes down.
+// Self-contained session clock: ticks its OWN state every second so only this tiny
+// component re-renders — the old approach re-rendered the whole App every second,
+// which (because the screens were rendered as fresh component identities) remounted
+// every input and dropped the mobile keyboard mid-typing. Fixed 2026-07-17.
+function SessionClock({start,style}){
+  const[,tick]=useState(0);
+  useEffect(()=>{const t=setInterval(()=>tick(x=>x+1),1000);return()=>clearInterval(t);},[]);
+  const min=start?(Date.now()-start)/60000:0;
+  return<div style={style}>{fmtDur(min)}</div>;
+}
 function HoldTimerCell({value,onChange,V,sans}){
   const[running,setRunning]=useState(false);
   const[elapsed,setElapsed]=useState(0);
@@ -1182,7 +1192,7 @@ export default function App(){
       accessories:accEntry.exercises};
     const histArr=[...sessHist,histEntry].slice(-50);
     setSessHist(histArr);sv(SK.history,histArr);
-    setSessionStart(null);setSessionMode("full");setQuickExs([]);setRoutineExs([]);setActiveRoutineId(null);
+    setSessionStart(null);setSessionMode("full");setQuickExs([]);setRoutineExs([]);setActiveRoutineId(null);setView("home");
     initSession();
   },[anchorLog,anchors,anchorSets,accs,accLog,fatigue,meso,initSession,sessionStart,sessionMode,sessHist,quickExs,routineExs]);
 
@@ -1423,7 +1433,7 @@ export default function App(){
         {Array.from({length:mesoState.totalWeeks||5}).map((_,i)=><div key={i} style={{flex:1,height:6,borderRadius:3,background:i<mesoState.week?V.accent:V.card2}}/>)}
       </div>}
       {!isSession
-        ? <div onClick={()=>{setSessionStart(Date.now());setSessionMode("full");initSession();}} style={{marginTop:16,background:V.accent,color:V.accentink,borderRadius:15,height:52,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,cursor:"pointer"}}>Start today's session</div>
+        ? <div onClick={()=>{setSessionStart(Date.now());setSessionMode("full");initSession();setView("session");}} style={{marginTop:16,background:V.accent,color:V.accentink,borderRadius:15,height:52,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,cursor:"pointer"}}>Start today's session</div>
         : <div onClick={()=>setView("session")} style={{marginTop:16,border:`1px solid ${V.accent}`,color:V.accent,borderRadius:15,height:52,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,cursor:"pointer"}}>Resume session ›</div>}
       <div style={{display:"flex",gap:8,marginTop:10}}>
         <span onClick={startDeload} style={{flex:1,textAlign:"center",fontSize:12,fontWeight:600,color:V.ink2,cursor:"pointer",border:`1px solid ${V.border}`,borderRadius:10,padding:"7px 0"}}>Deload</span>
@@ -1546,10 +1556,8 @@ export default function App(){
   };
 
   // ── SESSION ──
-  const [,forceTick]=useState(0);
-  useEffect(()=>{if(!isSession)return;const t=setInterval(()=>forceTick(x=>x+1),1000);return()=>clearInterval(t);},[isSession]);
   const sName=sessionMode==="quick"?"Quick session":sessionMode==="routine"?(routines.find(r=>r.id===activeRoutineId)?.name||"Routine"):(activeSlots.map(p=>anchors[p.id]).filter(Boolean)[0]?"Full session":"Session");
-  const sTimeStr=isSession?fmtDur((Date.now()-sessionStart)/60000):"0:00";
+  const sTimeStr=isSession?fmtDur((Date.now()-sessionStart)/60000):"0:00";   // static snapshot for resume cards; the live session header uses <SessionClock/>
   const SessionScreen=()=>{
     // Always resolve `ex` from the real EXERCISES catalog so the bw/hold/impl flags are
     // present — buildAcc (accessories) and the quick pool don't carry them, which was
@@ -1567,7 +1575,7 @@ export default function App(){
         <span onClick={goHome} style={{color:V.hink,fontSize:22,cursor:"pointer"}}>‹ Home</span>
         <div style={{textAlign:"center",marginTop:2}}>
           <div style={{fontFamily:serif,fontSize:30,color:V.ink}}>{sName}</div>
-          <div style={{fontFamily:serif,fontSize:54,color:V.ink,marginTop:4,fontVariantNumeric:"tabular-nums"}}>{sTimeStr}</div>
+          <SessionClock start={sessionStart} style={{fontFamily:serif,fontSize:54,color:V.ink,marginTop:4,fontVariantNumeric:"tabular-nums"}}/>
         </div>
       </div>
       <div style={{padding:"18px 16px 0",display:"flex",flexDirection:"column",gap:14}}>
@@ -2151,17 +2159,22 @@ export default function App(){
   return(<div style={{"--canvas":V.canvas,fontFamily:sans,background:V.bg,minHeight:"100vh",maxWidth:520,margin:"0 auto",position:"relative"}}>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <style>{`*{box-sizing:border-box}body{margin:0}input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}input[type=number]{-moz-appearance:textfield}`}</style>
-    {view==="home"&&!isSession&&<HomeScreen/>}
-    {view==="session"||(view==="home"&&isSession)?<SessionScreen/>:null}
-    {view==="cardio"&&<CardioScreen/>}
-    {view==="insights"&&<InsightsScreen/>}
-    {view==="log"&&<LogScreen/>}
-    {view==="settings"&&<SettingsScreen/>}
-    {view==="gym"&&<GymScreen/>}
-    <SwapModal/>
-    <AddAccModal/>
-    <NewRoutineModal/>
-    <AnchorCfgModal/>
-    <NavBar/>
+    {/* Screens rendered as function calls (not <Screen/>) so React reconciles them in
+        place instead of remounting a fresh component identity every render — remounting
+        was recreating inputs and dropping the keyboard while typing. All screen fns are
+        hook-free, so inlining is safe. `home` always shows HomeScreen (with its resume
+        UI) even mid-session, so the ‹ Home / nav-home actually leaves the session. */}
+    {view==="home"&&HomeScreen()}
+    {view==="session"&&isSession&&SessionScreen()}
+    {view==="cardio"&&CardioScreen()}
+    {view==="insights"&&InsightsScreen()}
+    {view==="log"&&LogScreen()}
+    {view==="settings"&&SettingsScreen()}
+    {view==="gym"&&GymScreen()}
+    {SwapModal()}
+    {AddAccModal()}
+    {NewRoutineModal()}
+    {AnchorCfgModal()}
+    {NavBar()}
   </div>);
 }
