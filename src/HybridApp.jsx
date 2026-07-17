@@ -482,6 +482,17 @@ function getProgression(name,log,repRange=[6,10],targetRIR=2,bodyWeight=0,powerM
 }
 
 // ── VOLUME ──
+// Set-credit model (2026-07-17 audit fix). MEV/MAV/MRV landmarks are defined by
+// Israetel/RP in WHOLE working sets where the muscle is a real target — NOT weighted
+// by fractional involvement. The old code did vol += hardSets*(involvement/100), which
+// counted a bench as 0.55 of a chest set, systematically undercounting ~2x vs the
+// landmarks (proven: a real 2-session week read chest 5.3 "below MEV" when the standard
+// count was 11, at/above MEV). setCredit tiers involvement into direct/indirect/incidental,
+// matching the dataset cross-check (target=primary, synergist=secondary, stabilizer=~none):
+//   >=40% involvement -> 1.0 set (direct/primary target)
+//   15-39%            -> 0.5 set (significant synergist)
+//   <15%             -> 0   (stabilizer/incidental, not stimulating volume)
+function setCredit(pct){ return pct>=40 ? 1 : pct>=15 ? 0.5 : 0; }
 function calcWeeklyVolume(anchorLog,accLog){
   const vol={};MUSCLES.forEach(m=>vol[m]=0);
   // Current CALENDAR week (latest week with any logged set) — matches every other "this wk"
@@ -496,14 +507,14 @@ function calcWeeklyVolume(anchorLog,accLog){
     (entries||[]).filter(e=>weekStart(e.date)===curWk).forEach(entry=>{
       const ex=EXERCISES.find(x=>x.name===name);if(!ex)return;
       const hardSets=entry.sets.filter(isHard).length;
-      [...ex.p,...ex.s].forEach(({m,p})=>{vol[m]+=hardSets*(p/100);});
+      [...ex.p,...ex.s].forEach(({m,p})=>{vol[m]+=hardSets*setCredit(p);});
     });
   });
   (accLog||[]).filter(e=>weekStart(e.date)===curWk).forEach(entry=>{
     entry.exercises?.forEach(ex=>{
       const ref=EXERCISES.find(x=>x.name===ex.name);if(!ref)return;
       const hardSets=(ex.sets||[]).filter(isHard).length;
-      [...ref.p,...ref.s].forEach(({m,p})=>{vol[m]+=hardSets*(p/100);});
+      [...ref.p,...ref.s].forEach(({m,p})=>{vol[m]+=hardSets*setCredit(p);});
     });
   });
   return vol;
@@ -808,7 +819,7 @@ function avgWeeklyVolume(anchorLog,accLog,todayStr,weeks){
     const wk=weekStart(dateStr);if(wk>=curWk)return;
     const hs=(sets||[]).filter(isHard).length;if(!hs)return;
     byWk[wk]=byWk[wk]||{};
-    [...ref.p,...ref.s].forEach(({m,p})=>{byWk[wk][m]=(byWk[wk][m]||0)+hs*(p/100);});
+    [...ref.p,...ref.s].forEach(({m,p})=>{byWk[wk][m]=(byWk[wk][m]||0)+hs*setCredit(p);});
   };
   Object.entries(anchorLog).forEach(([name,es])=>(es||[]).forEach(e=>add(e.date,name,e.sets)));
   (accLog||[]).forEach(e=>(e.exercises||[]).forEach(x=>add(e.date,x.name,x.sets)));
@@ -1773,14 +1784,18 @@ export default function App(){
   };
   const main=["chest","back","shoulders","quads","hamstrings","glutes","biceps","triceps","calves","core","traps","forearms"];
   const InsightsScreen=()=>{
+    // Volume shown vs the MEV/MAV landmarks uses TYPICAL weekly volume (avgVol, averaged
+    // over completed weeks) — NOT the latest partial week (weekVol), which for a 2x/week
+    // lifter is often a single logged session and read as half a real week. avgVol also
+    // already uses the set-credit model, so these numbers are directly comparable to the
+    // landmarks now. Falls back to the current week only before any completed week exists.
+    const iv=avgVol||weekVol;
     // Two scalings, on purpose: the STATS (coverage %, groups-at-MEV) stay absolute
     // vs the MEV landmark — that's the meaningful "am I doing enough" number. But the
-    // radar SHAPE fills RELATIVE to your own max muscle, so it always occupies the chart
-    // and reads as "where am I focusing" instead of a sad dot hugging center. Feedback
-    // 2026-07-16: the charts made it look like the user doesn't train when they train hard.
-    const covVals=main.slice(0,8).map(m=>weekVol[m]||0);
+    // radar SHAPE fills RELATIVE to your own max muscle, so it always occupies the chart.
+    const covVals=main.slice(0,8).map(m=>iv[m]||0);
     const covMax=Math.max(...covVals,1);
-    const covAbs=main.slice(0,8).map(m=>(weekVol[m]||0)/(VOL_LANDMARKS[m].mev||1));
+    const covAbs=main.slice(0,8).map(m=>(iv[m]||0)/(VOL_LANDMARKS[m].mev||1));
     const covPct=Math.round(covAbs.reduce((a,v)=>a+Math.min(v,1),0)/covAbs.length*100);
     const covGroups=covAbs.filter(v=>v>=1).length;
     const coverage=main.slice(0,8).map((m,i)=>({label:m.slice(0,4),v:(covVals[i]/covMax)*1.4}));
@@ -1818,7 +1833,7 @@ export default function App(){
     })();
     const insightLine=()=>{
       const strongest=[...patRows].filter(l=>l.delta!=null).sort((a,b)=>b.delta-a.delta)[0];
-      const under=main.filter(m=>(weekVol[m]||0)<(VOL_LANDMARKS[m].mev*0.7));
+      const under=main.filter(m=>(iv[m]||0)<(VOL_LANDMARKS[m].mev*0.7));
       const bits=[];
       if(strongest)bits.push(`${strongest.name} up ${strongest.delta>0?"+":""}${strongest.delta}lb this meso`);
       if(under.length)bits.push(`${under.slice(0,2).join(", ")} under weekly minimum`);
@@ -1842,7 +1857,7 @@ export default function App(){
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{flex:"0 0 auto"}}>{(()=>{
             const raw=Object.entries(GROUP_MAP).map(([g,muscles])=>({
-              label:g,vol:muscles.reduce((a,m)=>a+(weekVol[m]||0),0),color:GROUP_COLORS[g]
+              label:g,vol:muscles.reduce((a,m)=>a+(iv[m]||0),0),color:GROUP_COLORS[g]
             }));
             // Spikes scale RELATIVE to your biggest group so the burst always fills the
             // ring and shows where effort is going — not tiny stubs vs an MAV ceiling.
@@ -1865,9 +1880,9 @@ export default function App(){
           under-trained" at once. Feedback 2026-07-16. */}
       <Card style={{padding:"18px 20px",marginBottom:13}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}><span style={{fontSize:16,fontWeight:600,color:V.ink}}>Muscle load</span><span style={{color:V.ink2,fontSize:12}}>relative · color = MEV–MAV</span></div>
-        {(()=>{const loadMax=Math.max(...main.map(m=>weekVol[m]||0),1);
+        {(()=>{const loadMax=Math.max(...main.map(m=>iv[m]||0),1);
         return<div style={{display:"flex",flexDirection:"column",gap:11}}>
-          {main.map(m=>{const lm=VOL_LANDMARKS[m];const cur=Math.round(weekVol[m]||0);const pct=Math.max((weekVol[m]||0)/loadMax*100,cur>0?6:0);
+          {main.map(m=>{const lm=VOL_LANDMARKS[m];const cur=Math.round(iv[m]||0);const pct=Math.max((iv[m]||0)/loadMax*100,cur>0?6:0);
             const col=cur>=lm.mav?V.good:cur>=lm.mev?"#8fae6a":cur>=lm.mev*0.7?"#c9a24a":"#c46a5a";
             const tag=cur>=lm.mav?"MAV+":cur>=lm.mev?"MEV+":cur>0?"low":"none";
             return(<div key={m}>
